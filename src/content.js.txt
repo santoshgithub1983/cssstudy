@@ -1,0 +1,28 @@
+// content.js
+
+// Listen for messages from the main script
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.action) {
+    chrome.runtime.sendMessage(message, (response) => {
+      if (sendResponse) sendResponse(response);
+    });
+    // Keep the message channel open for asynchronous responses
+    return true;
+  }
+});
+
+
+// content.js
+
+// Listen for messages from the main script
+window.addEventListener('message', (event) => {
+  if (event.origin !== window.location.origin) return; // Ensure the message comes from your extension
+  if (event.data.action) {
+    chrome.runtime.sendMessage(event.data);
+  }
+});
+
+// Listen for messages from the background script and forward them to main script
+chrome.runtime.onMessage.addListener((message) => {
+  window.postMessage(message, '*');
+});

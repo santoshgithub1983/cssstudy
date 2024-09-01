@@ -1,0 +1,76 @@
+// background.js
+
+// Listener for messages from content script
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.action === 'checkIncident') {
+    if (message.userResponse === 'yes') {
+      // Request permissions and handle response
+      chrome.permissions.request(
+        { permissions: ['activeTab'] },
+        (granted) => {
+          if (granted) {
+            // User granted permissions, take screenshot and create issue
+            takeScreenshotAndCreateIssue();
+          } else {
+            // User denied permissions, create issue without screenshot
+            createIssueWithoutScreenshot();
+          }
+        }
+      );
+    } else {
+      // User said no, create issue without screenshot
+      createIssueWithoutScreenshot();
+    }
+  }
+});
+
+// Function to take a screenshot and create an issue
+function takeScreenshotAndCreateIssue() {
+  chrome.tabs.captureVisibleTab((screenshotUrl) => {
+    createIssueWithScreenshot(screenshotUrl);
+  });
+}
+
+// Function to create an issue with screenshot
+function createIssueWithScreenshot(screenshotUrl) {
+  fetch('https://gitlab.com/api/v4/projects/PROJECT_ID/issues', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'PRIVATE-TOKEN': 'YOUR_PRIVATE_TOKEN',
+    },
+    body: JSON.stringify({
+      title: 'Issue Title',
+      description: 'Issue Description',
+      // Attach screenshot URL if needed
+      description: `Issue Description\n\nScreenshot URL: ${screenshotUrl}`
+    }),
+  }).then(response => response.json())
+    .then(data => {
+      console.log('Issue created:', data);
+    })
+    .catch(error => {
+      console.error('Error creating issue:', error);
+    });
+}
+
+// Function to create an issue without screenshot
+function createIssueWithoutScreenshot() {
+  fetch('https://gitlab.com/api/v4/projects/PROJECT_ID/issues', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'PRIVATE-TOKEN': 'YOUR_PRIVATE_TOKEN',
+    },
+    body: JSON.stringify({
+      title: 'Issue Title',
+      description: 'Issue Description',
+    }),
+  }).then(response => response.json())
+    .then(data => {
+      console.log('Issue created:', data);
+    })
+    .catch(error => {
+      console.error('Error creating issue:', error);
+    });
+}
