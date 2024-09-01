@@ -1,0 +1,27 @@
+.header {
+  position: fixed;
+  top:0;
+  left: 0;
+  right: 0;
+  background-color: #ffffff;
+  color: #000;
+  padding: 1.25rem;
+  border-bottom: 1px solid rgb(230,0,0);
+  z-index: 1000;
+  box-shadow: 0 2px 4px rgba(43, 7, 7, 0.1);
+  padding: 1rem;
+  height: 3rem;
+  display: flex;
+  align-items: center;
+}
+
+.header-logo {
+  height: 3rem;
+  /* margin-right: 1rem; */
+  display: block;
+  width: 20%;
+}
+.header-title {
+  font-size: 1.25rem; /* Equivalent to text-xl in Tailwind */
+  font-weight: 700;
+}
