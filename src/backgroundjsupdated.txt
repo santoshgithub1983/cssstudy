@@ -17,64 +17,57 @@ function triggerGitLabIssueCreation(screenshots) {
     reader.onloadend = function () {
       const base64Log = reader.result.split(',')[1]; // Get the base64 part
 
-      let description = 'Details of the incident...';
+      // Step 1: Upload the log file
+      const formData = new FormData();
+      formData.append('file', logBlob, 'network-logs.txt');
 
-      if (screenshots.length > 0) {
-        description += '\n\nScreenshots:\n';
-        screenshots.forEach((image, index) => {
-          description += `![Screenshot ${index + 1}](data:image/png;base64,${image})\n`;
-        });
-      }
-
-      fetch(`https://gitlab.com/api/v4/projects/${projectId}/issues`, {
+      fetch(`https://gitlab.com/api/v4/projects/${projectId}/uploads`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
           'PRIVATE-TOKEN': privateToken,
         },
-        body: JSON.stringify({
-          title: 'Incident reported via Chrome Extension',
-          description: description,
-        }),
+        body: formData,
       })
       .then(response => response.json())
-      .then(data => {
-        console.log('GitLab issue created:', data);
+      .then(uploadData => {
+        console.log('File uploaded:', uploadData);
 
-        // Upload the log file
-        fetch(`https://gitlab.com/api/v4/projects/${projectId}/uploads`, {
+        // Step 2: Create the issue with screenshots and link to the uploaded logs
+        let description = 'Details of the incident...';
+
+        if (screenshots.length > 0) {
+          description += '\n\nScreenshots:\n';
+          screenshots.forEach((image, index) => {
+            description += `![Screenshot ${index + 1}](data:image/png;base64,${image})\n`;
+          });
+        }
+
+        description += `\n\nNetwork logs attached: ${uploadData.markdown}`;
+
+        fetch(`https://gitlab.com/api/v4/projects/${projectId}/issues`, {
           method: 'POST',
           headers: {
+            'Content-Type': 'application/json',
             'PRIVATE-TOKEN': privateToken,
           },
-          body: new FormData().append('file', new Blob([base64Log], { type: 'text/plain' }), 'network-logs.txt'),
+          body: JSON.stringify({
+            title: 'Incident reported via Chrome Extension',
+            description: description,
+          }),
         })
         .then(response => response.json())
-        .then(uploadData => {
-          console.log('File uploaded:', uploadData);
+        .then(data => {
+          console.log('GitLab issue created:', data);
 
-          // Now attach the file to the issue
-          fetch(`https://gitlab.com/api/v4/projects/${projectId}/issues/${data.iid}/notes`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'PRIVATE-TOKEN': privateToken,
-            },
-            body: JSON.stringify({
-              body: `Network logs attached: ${uploadData.markdown}`,
-            }),
-          })
-          .then(noteResponse => noteResponse.json())
-          .then(noteData => {
-            console.log('Note added to issue:', noteData);
-          });
+          // Step 3: Clear the stored logs after issue creation
+          chrome.storage.local.set({ networkLogs: [] });
+        })
+        .catch(error => {
+          console.error('Error creating GitLab issue:', error);
         });
-
-        // Clear the stored logs after issue creation
-        chrome.storage.local.set({ networkLogs: [] });
       })
       .catch(error => {
-        console.error('Error creating GitLab issue:', error);
+        console.error('Error uploading log file:', error);
       });
     };
 
