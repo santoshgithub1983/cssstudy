@@ -1,43 +1,80 @@
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "start_issue_reporting") {
-    const confirmScreenshot = confirm("Do you grant permission to take screenshots?");
-    
-    if (confirmScreenshot) {
-      // Initialize an array to store captured screenshots
-      const screenshots = [];
+    chrome.notifications.create('screenshot_permission', {
+      type: 'basic',
+      iconUrl: 'icon.png',
+      title: 'Permission Needed',
+      message: 'Do you grant permission to take screenshots?',
+      buttons: [
+        { title: 'Yes' },
+        { title: 'No' }
+      ],
+      requireInteraction: true
+    });
 
-      // Listen for screenshot requests
-      chrome.tabs.captureVisibleTab(null, {}, (image) => {
-        screenshots.push(image);
-        const moreScreenshots = confirm("Do you want to capture another screenshot?");
-        if (moreScreenshots) {
-          chrome.runtime.sendMessage({ action: "capture_another_screenshot" });
-        } else {
-          triggerGitLabIssueCreation(screenshots);
+    // Handle the button click
+    chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) => {
+      if (notificationId === 'screenshot_permission') {
+        if (buttonIndex === 0) { // "Yes" button
+          captureScreenshots(sendResponse);
+        } else { // "No" button
+          triggerGitLabIssueCreation([]);
+          sendResponse({ status: "no_screenshot" });
         }
-      });
+        chrome.notifications.clear(notificationId);
+      }
+    });
 
-      sendResponse({ status: "success" });
-    } else {
-      triggerGitLabIssueCreation([]);
-      sendResponse({ status: "no_screenshot" });
-    }
-
-    return true;
+    return true; // Keep the message channel open for async response
   }
 });
+
+function captureScreenshots(sendResponse) {
+  const screenshots = [];
+
+  function captureAndPrompt() {
+    chrome.tabs.captureVisibleTab(null, {}, (image) => {
+      screenshots.push(image);
+      chrome.notifications.create('more_screenshot', {
+        type: 'basic',
+        iconUrl: 'icon.png',
+        title: 'More Screenshots?',
+        message: 'Do you want to capture another screenshot?',
+        buttons: [
+          { title: 'Yes' },
+          { title: 'No' }
+        ],
+        requireInteraction: true
+      });
+
+      chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) => {
+        if (notificationId === 'more_screenshot') {
+          if (buttonIndex === 0) { // "Yes" button
+            captureAndPrompt();
+          } else { // "No" button
+            triggerGitLabIssueCreation(screenshots);
+            sendResponse({ status: "success" });
+          }
+          chrome.notifications.clear(notificationId);
+        }
+      });
+    });
+  }
+
+  captureAndPrompt();
+}
 
 function triggerGitLabIssueCreation(screenshots) {
   const projectId = 'YOUR_PROJECT_ID';
   const privateToken = 'YOUR_PRIVATE_TOKEN';
   
-  const bodyContent = {
-    title: 'Incident reported via Chrome Extension',
-    description: 'Details of the incident...',
-  };
+  let description = 'Details of the incident...';
 
   if (screenshots.length > 0) {
-    bodyContent.description += `\nScreenshots: ${screenshots.join("\n")}`;
+    description += '\n\nScreenshots:\n';
+    screenshots.forEach((image, index) => {
+      description += `![Screenshot ${index + 1}](data:image/png;base64,${image})\n`;
+    });
   }
 
   fetch(`https://gitlab.com/api/v4/projects/${projectId}/issues`, {
@@ -46,7 +83,10 @@ function triggerGitLabIssueCreation(screenshots) {
       'Content-Type': 'application/json',
       'PRIVATE-TOKEN': privateToken,
     },
-    body: JSON.stringify(bodyContent),
+    body: JSON.stringify({
+      title: 'Incident reported via Chrome Extension',
+      description: description,
+    }),
   })
   .then(response => response.json())
   .then(data => {
