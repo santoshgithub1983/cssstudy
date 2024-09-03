@@ -1,5 +1,14 @@
+chrome.runtime.onStartup.addListener(() => {
+  logUrlAndAppName();
+});
+
 chrome.runtime.onInstalled.addListener(() => {
-  // Listen when the extension is launched
+  logUrlAndAppName();
+});
+
+// Function to log the URL and app name
+function logUrlAndAppName() {
+  // Query for the active tab in the current window
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     if (tabs.length > 0) {
       const url = tabs[0].url;
@@ -8,11 +17,9 @@ chrome.runtime.onInstalled.addListener(() => {
       // Extract the app name from the URL
       const appName = extractAppNameFromURL(url);
       console.log("App Name:", appName);
-
-      // You can now use the appName in your extension as needed
     }
   });
-});
+}
 
 // Function to extract app name from the URL
 function extractAppNameFromURL(url) {
