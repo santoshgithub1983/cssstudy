@@ -1,0 +1,31 @@
+chrome.runtime.onInstalled.addListener(() => {
+  // Listen when the extension is launched
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    if (tabs.length > 0) {
+      const url = tabs[0].url;
+      console.log("Loaded URL:", url);
+
+      // Extract the app name from the URL
+      const appName = extractAppNameFromURL(url);
+      console.log("App Name:", appName);
+
+      // You can now use the appName in your extension as needed
+    }
+  });
+});
+
+// Function to extract app name from the URL
+function extractAppNameFromURL(url) {
+  try {
+    const urlObj = new URL(url);
+    const hostname = urlObj.hostname;
+
+    // Assuming the app name is part of the domain, e.g., "appname.domain.com"
+    const appName = hostname.split('.')[0];
+
+    return appName;
+  } catch (error) {
+    console.error("Invalid URL:", error);
+    return null;
+  }
+}
