@@ -1,0 +1,16 @@
+chrome.webRequest.onCompleted.addListener(
+  (details) => {
+    if (details.url.includes('/oauth2/authorize')) {
+      const responseHeaders = details.responseHeaders;
+      const locationHeader = responseHeaders.find(header => header.name.toLowerCase() === 'location');
+      if (locationHeader) {
+        const locationUrl = new URL(locationHeader.value);
+        const authorizationCode = locationUrl.searchParams.get('code');
+        if (authorizationCode) {
+          console.log('Authorization Code:', authorizationCode);
+        }
+      }
+    }
+  },
+  { urls: ['*://login.microsoftonline.com/*'] }
+);
