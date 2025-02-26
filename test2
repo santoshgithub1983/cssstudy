@@ -14,3 +14,288 @@ chrome.webRequest.onCompleted.addListener(
   },
   { urls: ['*://login.microsoftonline.com/*'] }
 );
+=========================
+
+
+ i want to create a springboot JAVA microservice which will get the asssurity  from javascript frontend that the user is authenticated and eligible to raise issue , once its TRUE then microservice will get the issue details entred in chrome extension and using technical account it will log gitlab issue on behalf of user BUT there should be some identification that this issue is actually raised by so an so end user
+Got it! You want to implement a Spring Boot-based microservice in Java that:
+
+Verifies User Authentication:
+
+The microservice ensures that the user is authenticated and eligible to raise an issue.
+
+Accepts Issue Details:
+
+The microservice receives issue details (title, description, etc.) from the Chrome extension (JavaScript frontend).
+
+Submits the Issue to GitLab:
+
+The microservice uses a technical account's GitLab Personal Access Token (PAT) to submit the issue on behalf of the user.
+
+Tracks User Identity:
+
+The microservice ensures that the issue is tagged or annotated with the identity of the end user who raised it.
+
+This is a clean and secure approach. Let’s break it down step by step.
+
+Architecture Overview
+Frontend (Chrome Extension):
+
+Authenticates the user (e.g., using JWT or OAuth).
+
+Sends issue details and authentication token to the Spring Boot microservice.
+
+Backend (Spring Boot Microservice):
+
+Verifies the authentication token.
+
+Extracts the user's identity.
+
+Submits the issue to GitLab using the technical account's PAT.
+
+Includes the user's identity in the issue description or metadata.
+
+GitLab:
+
+Receives the issue and stores it with the user's identity for tracking.
+
+Implementation Steps
+1. Spring Boot Microservice
+Dependencies
+Add the following dependencies to your pom.xml:
+
+xml
+Copy
+<dependencies>
+    <!-- Spring Boot Starter Web -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+
+    <!-- Spring Boot Starter Security (for authentication) -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-security</artifactId>
+    </dependency>
+
+    <!-- JJWT for JWT verification -->
+    <dependency>
+        <groupId>io.jsonwebtoken</groupId>
+        <artifactId>jjwt</artifactId>
+        <version>0.11.5</version>
+    </dependency>
+
+    <!-- Apache HttpClient for GitLab API calls -->
+    <dependency>
+        <groupId>org.apache.httpcomponents</groupId>
+        <artifactId>httpclient</artifactId>
+    </dependency>
+
+    <!-- Lombok (optional, for reducing boilerplate code) -->
+    <dependency>
+        <groupId>org.projectlombok</groupId>
+        <artifactId>lombok</artifactId>
+        <scope>provided</scope>
+    </dependency>
+</dependencies>
+Run HTML
+Spring Boot Application
+Create a Spring Boot application with the following components:
+
+Authentication Verification:
+
+Verify the JWT token sent by the frontend.
+
+Extract the user's identity (e.g., email or username) from the token.
+
+Issue Submission to GitLab:
+
+Use the GitLab API to submit the issue.
+
+Include the user's identity in the issue description.
+
+Code Implementation
+application.properties
+Configure your GitLab credentials and JWT secret:
+
+properties
+Copy
+gitlab.token=your-technical-account-pat
+gitlab.project-id=your-project-id
+jwt.secret=your-jwt-secret
+IssueController.java
+Create a REST controller to handle issue submissions:
+
+java
+Copy
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/issues")
+public class IssueController {
+
+    @Value("${gitlab.token}")
+    private String gitlabToken;
+
+    @Value("${gitlab.project-id}")
+    private String gitlabProjectId;
+
+    @Value("${jwt.secret}")
+    private String jwtSecret;
+
+    @PostMapping("/submit")
+    public ResponseEntity<String> submitIssue(
+            @RequestHeader("Authorization") String authHeader,
+            @RequestBody IssueRequest issueRequest) {
+
+        // Verify JWT and extract user identity
+        String token = authHeader.replace("Bearer ", "");
+        String userIdentity;
+        try {
+            userIdentity = JwtUtil.extractUserIdentity(token, jwtSecret);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid token");
+        }
+
+        // Add user identity to the issue description
+        String issueDescription = issueRequest.getDescription() + "\n\nSubmitted by: " + userIdentity;
+
+        // Submit the issue to GitLab
+        try {
+            String issueUrl = GitLabService.submitIssue(gitlabToken, gitlabProjectId, issueRequest.getTitle(), issueDescription);
+            return ResponseEntity.ok("Issue created: " + issueUrl);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Failed to create issue: " + e.getMessage());
+        }
+    }
+}
+IssueRequest.java
+Define a model for the issue request:
+
+java
+Copy
+import lombok.Data;
+
+@Data
+public class IssueRequest {
+    private String title;
+    private String description;
+}
+JwtUtil.java
+Utility class for JWT verification:
+
+java
+Copy
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
+import javax.crypto.SecretKey;
+import java.nio.charset.StandardCharsets;
+
+public class JwtUtil {
+
+    public static String extractUserIdentity(String token, String secret) {
+        SecretKey key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
+        Claims claims = Jwts.parserBuilder()
+                .setSigningKey(key)
+                .build()
+                .parseClaimsJws(token)
+                .getBody();
+        return claims.getSubject(); // Assuming the user identity is stored in the subject
+    }
+}
+GitLabService.java
+Service class to interact with the GitLab API:
+
+java
+Copy
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.entity.StringEntity;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
+import org.apache.http.util.EntityUtils;
+import org.json.JSONObject;
+
+public class GitLabService {
+
+    public static String submitIssue(String gitlabToken, String projectId, String title, String description) throws Exception {
+        String url = "https://gitlab.com/api/v4/projects/" + projectId + "/issues";
+
+        JSONObject issue = new JSONObject();
+        issue.put("title", title);
+        issue.put("description", description);
+
+        try (CloseableHttpClient client = HttpClients.createDefault()) {
+            HttpPost httpPost = new HttpPost(url);
+            httpPost.setHeader("Authorization", "Bearer " + gitlabToken);
+            httpPost.setHeader("Content-Type", "application/json");
+            httpPost.setEntity(new StringEntity(issue.toString()));
+
+            String response = EntityUtils.toString(client.execute(httpPost).getEntity());
+            JSONObject responseJson = new JSONObject(response);
+            return responseJson.getString("web_url");
+        }
+    }
+}
+2. Frontend (Chrome Extension)
+Send Issue Details to Microservice
+Use fetch to send issue details and the authentication token to the Spring Boot microservice:
+
+javascript
+Copy
+async function submitIssue(title, description) {
+    const authToken = await getUserAuthToken(); // Get the user's JWT
+    const microserviceUrl = 'https://your-springboot-microservice.com/api/issues/submit';
+
+    const response = await fetch(microserviceUrl, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`
+        },
+        body: JSON.stringify({ title, description })
+    });
+
+    const data = await response.json();
+    if (response.ok) {
+        console.log('Issue created:', data);
+    } else {
+        console.error('Failed to create issue:', data);
+    }
+}
+
+// Example usage
+submitIssue('New Issue', 'This is a test issue submitted by the user.');
+Key Features
+Authentication Verification:
+
+The microservice verifies the JWT to ensure the user is authenticated.
+
+User Identification:
+
+The user's identity is included in the issue description or metadata.
+
+Technical Account for GitLab:
+
+The microservice uses a technical account's PAT to submit issues.
+
+Scalability and Security:
+
+The microservice is scalable and keeps the PAT secure.
+
+Next Steps
+Deploy the Microservice:
+
+Deploy the Spring Boot application to a cloud platform (e.g., AWS, Heroku, or Google Cloud).
+
+Test the Workflow:
+
+Test the entire flow from the Chrome extension to GitLab.
+
+Enhancements:
+
+Add logging, rate limiting, and input validation to the microservice.
