@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Camera Notification</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>Webcam Access</h1>
+        <video id="video" width="640" height="480" autoplay></video>
+        <div id="notification" class="hidden"></div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const video = document.getElementById('video');
+            const notification = document.getElementById('notification');
+
+            // Check for media devices support
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                notification.textContent = "Error: Browser doesn't support camera access";
+                notification.classList.remove('hidden');
+                return;
+            }
+
+            // Request camera access
+            navigator.mediaDevices.getUserMedia({ video: true })
+                .then(stream => {
+                    video.srcObject = stream;
+                    showNotification("Camera is active!", true);
+                    sendCameraStatus(true);
+                })
+                .catch(error => {
+                    showNotification(`Camera access denied: ${error.name}`, false);
+                    console.error('Camera error:', error);
+                });
+
+            function showNotification(message, isSuccess) {
+                notification.textContent = message;
+                notification.classList.remove('hidden');
+                notification.style.backgroundColor = isSuccess ? '#e6ffe6' : '#ffe6e6';
+                notification.style.color = isSuccess ? '#006600' : '#cc0000';
+            }
+
+            function sendCameraStatus(status) {
+                fetch('/camera_status', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status: status })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.message) {
+                        showNotification(data.message, true);
+                    }
+                });
+            }
+        });
+    </script>
+</body>
+</html>
