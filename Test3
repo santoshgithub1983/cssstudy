@@ -1,0 +1,113 @@
+(Due to technical issues, the search service is temporarily unavailable.)
+
+Here's a step-by-step guide to create a Flask web app that shows a notification when the webcam is active:
+
+### 1. Project Setup
+Create a new directory and install Flask:
+```bash
+mkdir flask-camera-notification
+cd flask-camera-notification
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install flask
+```
+
+### 2. Create Flask Application
+**app.py**:
+```python
+from flask import Flask, render_template, jsonify, request
+
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/camera_status', methods=['POST'])
+def camera_status():
+    status = request.json.get('status')
+    if status:
+        print("Camera is ON")
+        return jsonify({"message": "Notification: Camera is active!"})
+    return jsonify({"message": ""})
+
+if __name__ == '__main__':
+    app.run(debug=True)
+```
+
+### 3. Create HTML Template
+**templates/index.html**:
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Camera Notification</title>
+</head>
+<body>
+    <h1>Webcam Access</h1>
+    <video id="video" width="640" height="480" autoplay></video>
+    <div id="notification"></div>
+
+    <script>
+        // Access webcam
+        const video = document.getElementById('video');
+        const notification = document.getElementById('notification');
+        
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => {
+                video.srcObject = stream;
+                
+                // Send status to Flask
+                fetch('/camera_status', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ status: true })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.message) {
+                        notification.textContent = data.message;
+                        notification.style.color = 'red';
+                        notification.style.padding = '10px';
+                    }
+                });
+            })
+            .catch(error => {
+                console.error('Error accessing camera:', error);
+            });
+    </script>
+</body>
+</html>
+```
+
+### 4. Run the Application
+```bash
+python app.py
+```
+
+Visit `http://localhost:5000` in your browser. When you allow camera access:
+1. The browser will show the camera feed
+2. A red notification will appear saying "Notification: Camera is active!"
+3. The server will print "Camera is ON" in the console
+
+### Key Features:
+- Camera access using WebRTC API
+- POST request to Flask when camera activates
+- Visual notification in the browser
+- Server-side logging
+
+### Security Notes:
+1. Works only over HTTPS in production (required for camera access)
+2. Needs user permission to access camera
+3. Only shows notification for initial activation (you can add more logic for continuous monitoring)
+
+To enhance this, you could:
+1. Add a toggle button for camera control
+2. Implement WebSocket for real-time updates
+3. Add user authentication
+4. Store camera usage logs
+5. Add more sophisticated notifications
+
+Let me know if you need any clarification or want to add more features!
