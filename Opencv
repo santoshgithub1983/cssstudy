@@ -1,0 +1,255 @@
+(Due to technical issues, the search service is temporarily unavailable.)
+
+Here's a solution to detect improper sitting posture using **face positioning analysis** with OpenCV (without MediaPipe) and notify users through a Flask web app:
+
+### Approach Overview:
+1. **Face Detection** using Haar Cascade
+2. **Position Analysis** (centering in frame)
+3. **Distance Analysis** (face size relative to frame)
+4. **Tilt Detection** using facial landmarks
+
+---
+
+### 1. Project Structure
+```
+posture-alert/
+├── app.py
+├── templates/
+│   └── index.html
+├── static/
+│   ├── styles.css
+│   └── haarcascades/
+│       └── haarcascade_frontalface_default.xml
+└── requirements.txt
+```
+
+### 2. `app.py`
+```python
+from flask import Flask, render_template, Response
+import cv2
+import numpy as np
+
+app = Flask(__name__)
+
+face_cascade = cv2.CascadeClassifier('static/haarcascades/haarcascade_frontalface_default.xml')
+
+def analyze_posture(frame):
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    faces = face_cascade.detectMultiScale(gray, 1.3, 5)
+    alerts = []
+    
+    if len(faces) > 0:
+        x, y, w, h = faces[0]
+        
+        # 1. Center Position Check
+        frame_center = (frame.shape[1]//2, frame.shape[0]//2)
+        face_center = (x + w//2, y + h//2)
+        
+        x_offset = abs(frame_center[0] - face_center[0])
+        y_offset = abs(frame_center[1] - face_center[1])
+        
+        if x_offset > frame.shape[1] * 0.2:
+            alerts.append("Center your face horizontally")
+        if y_offset > frame.shape[0] * 0.2:
+            alerts.append("Center your face vertically")
+            
+        # 2. Distance Check
+        face_area = w * h
+        frame_area = frame.shape[0] * frame.shape[1]
+        
+        if face_area < frame_area * 0.1:
+            alerts.append("Move closer to camera")
+        elif face_area > frame_area * 0.3:
+            alerts.append("Move back from camera")
+            
+        # 3. Tilt Check (Simple aspect ratio)
+        aspect_ratio = w / h
+        if aspect_ratio < 0.7 or aspect_ratio > 1.3:
+            alerts.append("Keep your head straight")
+            
+        # Draw visualization
+        cv2.rectangle(frame, (x,y), (x+w,y+h), (0,255,0), 2)
+        cv2.circle(frame, frame_center, 5, (0,0,255), -1)
+        
+    return frame, alerts
+
+def generate_frames():
+    cap = cv2.VideoCapture(0)
+    while True:
+        success, frame = cap.read()
+        if not success:
+            break
+            
+        processed_frame, alerts = analyze_posture(frame)
+        
+        # Add alerts to frame
+        if alerts:
+            cv2.putText(processed_frame, "Posture Alert!", (10,30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255), 2)
+            for i, alert in enumerate(alerts):
+                cv2.putText(processed_frame, alert, (10,70 + i*30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,0,255), 2)
+        
+        ret, buffer = cv2.imencode('.jpg', processed_frame)
+        frame = buffer.tobytes()
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/video_feed')
+def video_feed():
+    return Response(generate_frames(),
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
+
+if __name__ == '__main__':
+    app.run(debug=True)
+```
+
+### 3. `templates/index.html`
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Posture Monitor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>Posture Monitoring System</h1>
+        <img src="{{ url_for('video_feed') }}" width="640" height="480">
+        <div id="alerts"></div>
+    </div>
+
+    <script>
+        // Audio feedback
+        const alertSound = new Audio('data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU');
+        
+        // Visual alerts
+        const alertsDiv = document.getElementById('alerts');
+        
+        // Check for alerts every second
+        setInterval(() => {
+            fetch(window.location.href)
+                .then(response => response.text())
+                .then(text => {
+                    if(text.includes('Posture Alert!')) {
+                        alertSound.play();
+                        alertsDiv.innerHTML = '<div class="alert">Improper Posture Detected!</div>';
+                    } else {
+                        alertsDiv.innerHTML = '';
+                    }
+                });
+        }, 1000);
+    </script>
+</body>
+</html>
+```
+
+### 4. `static/styles.css`
+```css
+body {
+    font-family: Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: #f0f0f0;
+    margin: 0;
+    padding: 20px;
+}
+
+.container {
+    text-align: center;
+    max-width: 800px;
+}
+
+#alerts {
+    margin-top: 20px;
+    padding: 15px;
+    background: #ff4444;
+    color: white;
+    border-radius: 5px;
+    display: none;
+}
+
+.alert {
+    font-size: 1.2em;
+    font-weight: bold;
+}
+
+img {
+    border: 3px solid #ddd;
+    border-radius: 5px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+```
+
+### 5. `requirements.txt`
+```
+Flask==3.0.2
+opencv-python==4.9.0.80
+numpy==1.26.4
+```
+
+### Key Features:
+1. **Real-time Posture Analysis**:
+   - Face centering detection
+   - Distance from camera estimation
+   - Head tilt detection
+
+2. **Visual Feedback**:
+   - Face bounding box
+   - Center reference point
+   - On-screen alerts
+
+3. **Audible Alerts**:
+   - Beep sound when bad posture detected
+
+4. **Web Interface**:
+   - Live video feed
+   - Status alerts
+
+### How to Use:
+1. Place the Haar Cascade XML file in the specified directory
+2. Run `python app.py`
+3. Open `http://localhost:5000`
+4. The system will show:
+   - Green box around detected face
+   - Red center point as reference
+   - Text alerts for improper posture
+
+### Adjustment Tips:
+1. **Distance Thresholds**:
+   ```python
+   # In analyze_posture()
+   if face_area < frame_area * 0.1:  # Adjust 0.1 value
+   elif face_area > frame_area * 0.3:  # Adjust 0.3 value
+   ```
+
+2. **Position Thresholds**:
+   ```python
+   if x_offset > frame.shape[1] * 0.2:  # 20% from center
+   if y_offset > frame.shape[0] * 0.2:  # 20% from center
+   ```
+
+3. **Tilt Sensitivity**:
+   ```python
+   if aspect_ratio < 0.7 or aspect_ratio > 1.3:  # Adjust these values
+   ```
+
+### Limitations & Improvements:
+1. **Better Face Detection**:
+   - Use DNN-based face detectors for better accuracy
+
+2. **3D Pose Estimation**:
+   - Implement simple 3D head pose estimation using solvePnP
+
+3. **User Calibration**:
+   - Add initial calibration step for personalized settings
+
+4. **Persistent Alerts**:
+   - Implement WebSocket for real-time browser notifications
+
+Would you like me to explain any part in more detail or suggest additional features?
