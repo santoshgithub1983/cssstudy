@@ -1,3 +1,11 @@
+import cv2
+import numpy as np
+import winsound  # For Windows; use `os.system('beep')` for Linux/Mac
+
+# Initialize HOG descriptor for person detection
+hog = cv2.HOGDescriptor()
+hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
+
 def detect_slouching(frame):
     # Detect people in the frame
     (rects, _) = hog.detectMultiScale(frame, winStride=(4, 4), padding=(8, 8), scale=1.05)
@@ -11,10 +19,14 @@ def detect_slouching(frame):
         if aspect_ratio > 2.5:  # Adjust threshold based on testing
             cv2.putText(frame, "Slouching Detected!", (x, y - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            play_alert()  # Play sound alert
             return True  # Slouching detected
 
     return False  # No slouching
 
+def play_alert():
+    """Play a beep sound for slouching alert."""
+    winsound.Beep(1000, 500)  # Frequency: 1000Hz, Duration: 500ms
 
 def main():
     cap = cv2.VideoCapture(0)
@@ -32,7 +44,7 @@ def main():
         slouching = detect_slouching(frame)
 
         # Show the frame
-        cv2.imshow("Posture Monitor", frame)
+        cv2.imshow("Slouching Detection", frame)
 
         # Exit on 'q' key press
         if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -46,9 +58,5 @@ if __name__ == '__main__':
 
 
 
-Bundle as an Executable
-Use PyInstaller to bundle the script into an executable:
 
-bash
-Copy
-pyinstaller --onefile --add-data "haarcascades/haarcascade_frontalface_default.xml;haarcascades" posture_monitor.py
+
