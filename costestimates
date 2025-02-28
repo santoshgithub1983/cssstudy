@@ -1,0 +1,117 @@
+Ah, I see! If your Event Hubs Cluster is showing costs under the Dedicated Capacity Unit meter, that makes sense. The Dedicated Capacity Unit (CU) is the billing metric for Event Hubs Dedicated Clusters, and it represents the capacity reserved for your cluster. This is different from the Standard Tier, which is billed based on usage (e.g., throughput units, ingress/egress).
+
+To compare the costs of your Event Hubs Cluster (billed by Dedicated Capacity Units) and the Standard Tier Event Hub (billed by Event Hubs and Service Bus meters), you need to normalize the data and ensure you're comparing the right metrics.
+
+Step 1: Understand the Cost Components
+Event Hubs Cluster (Dedicated Tier):
+Billed based on Dedicated Capacity Units (CU).
+
+Each CU provides a fixed amount of throughput and storage.
+
+Costs are fixed (reserved capacity) and do not depend on usage.
+
+Standard Tier Event Hub:
+Billed based on usage:
+
+Throughput Units (TU): For ingress/egress.
+
+Operations: For API calls.
+
+Data Ingestion: For data sent to Event Hubs.
+
+Costs are variable and depend on usage.
+
+Step 2: Use Azure Cost Management to Filter and Compare
+a. For Event Hubs Cluster:
+Go to Cost Management + Billing > Cost Analysis.
+
+Apply a filter for:
+
+Resource Type: Microsoft.EventHub/clusters.
+
+Meter: Filter by Dedicated Capacity Unit.
+
+Group by Month to see the monthly costs for the cluster.
+
+b. For Standard Tier Event Hub:
+Go to Cost Management + Billing > Cost Analysis.
+
+Apply a filter for:
+
+Resource Type: Microsoft.EventHub/namespaces.
+
+Meter: Filter by both Event Hubs and Service Bus.
+
+Group by Month to see the monthly costs for the Standard Tier.
+
+c. Compare the Costs:
+Compare the total cost of the Event Hubs Cluster (Dedicated Capacity Units) with the total cost of the Standard Tier Event Hub (Event Hubs + Service Bus).
+
+Step 3: Export Cost Data and Analyze in Excel
+If you need more flexibility, export the cost data and analyze it in Excel.
+
+a. Export Cost Data:
+Go to Cost Management + Billing > Export.
+
+Set up an export to a storage account (e.g., CSV format).
+
+b. Analyze in Excel:
+Download the exported CSV file.
+
+Filter the data:
+
+For Event Hubs Cluster: Filter by ResourceType = Microsoft.EventHub/clusters and Meter = Dedicated Capacity Unit.
+
+For Standard Tier Event Hub: Filter by ResourceType = Microsoft.EventHub/namespaces and Meter includes both Event Hubs and Service Bus.
+
+Use Excel formulas or PivotTables to calculate the total cost for each tier.
+
+Step 4: Normalize the Data
+To ensure a fair comparison:
+
+For Event Hubs Cluster, use the Dedicated Capacity Unit costs.
+
+For Standard Tier Event Hub, add the Event Hubs and Service Bus costs together.
+
+Example Calculation:
+Tier	Dedicated Capacity Unit Cost	Event Hubs Cost	Service Bus Cost	Total Cost
+Event Hubs Cluster	$5,000	$0	$0	$5,000
+Standard Tier Event Hub	$0	$2,000	$1,000	$3,000
+Savings: 
+5
+,
+000
+(
+C
+l
+u
+s
+t
+e
+r
+)
+−
+5,000(Cluster)−3,000 (Standard Tier) = $2,000.
+
+Step 5: Visualize the Comparison
+Use Power BI or Excel to create visualizations (e.g., bar charts, pie charts) to show the cost comparison.
+
+Example:
+
+X-axis: Tier (Cluster vs Standard Tier).
+
+Y-axis: Total Cost.
+
+Step 6: Automate the Process (Optional)
+For ongoing cost tracking:
+
+Set up Azure Budgets to monitor costs for both tiers.
+
+Use Azure Alerts to notify you if costs exceed a threshold.
+
+Key Notes:
+Ensure you are comparing the same time period for both tiers.
+
+If you have multiple namespaces under the cluster, aggregate the costs for all namespaces to compare with the Standard Tier.
+
+By following these steps, you can accurately compare the costs of Event Hubs Cluster (billed by Dedicated Capacity Units) and Standard Tier Event Hub (billed by Event Hubs and Service Bus meters) and demonstrate the savings achieved. Let me know if you need further clarification!
