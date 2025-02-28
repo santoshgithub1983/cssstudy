@@ -10,6 +10,8 @@ def detect_slouching(frame):
     # Detect people in the frame
     (rects, _) = hog.detectMultiScale(frame, winStride=(4, 4), padding=(8, 8), scale=1.05)
 
+    slouching_detected = False
+
     for (x, y, w, h) in rects:
         # Draw bounding box
         cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
@@ -17,12 +19,12 @@ def detect_slouching(frame):
         # Check for slouching
         aspect_ratio = h / w
         if aspect_ratio > 2.5:  # Adjust threshold based on testing
+            slouching_detected = True
+            # Draw slouching alert text
             cv2.putText(frame, "Slouching Detected!", (x, y - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-            play_alert()  # Play sound alert
-            return True  # Slouching detected
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)  # Red text
 
-    return False  # No slouching
+    return slouching_detected
 
 def play_alert():
     """Play a beep sound for slouching alert."""
@@ -43,6 +45,10 @@ def main():
         # Detect slouching
         slouching = detect_slouching(frame)
 
+        # Play alert if slouching is detected
+        if slouching:
+            play_alert()
+
         # Show the frame
         cv2.imshow("Slouching Detection", frame)
 
@@ -55,8 +61,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
-
-
-
