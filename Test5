@@ -1,0 +1,54 @@
+def detect_slouching(frame):
+    # Detect people in the frame
+    (rects, _) = hog.detectMultiScale(frame, winStride=(4, 4), padding=(8, 8), scale=1.05)
+
+    for (x, y, w, h) in rects:
+        # Draw bounding box
+        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+
+        # Check for slouching
+        aspect_ratio = h / w
+        if aspect_ratio > 2.5:  # Adjust threshold based on testing
+            cv2.putText(frame, "Slouching Detected!", (x, y - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            return True  # Slouching detected
+
+    return False  # No slouching
+
+
+def main():
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("Error: Could not open camera.")
+        return
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            print("Error: Could not read frame.")
+            break
+
+        # Detect slouching
+        slouching = detect_slouching(frame)
+
+        # Show the frame
+        cv2.imshow("Posture Monitor", frame)
+
+        # Exit on 'q' key press
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+if __name__ == '__main__':
+    main()
+
+
+
+Bundle as an Executable
+Use PyInstaller to bundle the script into an executable:
+
+bash
+Copy
+pyinstaller --onefile --add-data "haarcascades/haarcascade_frontalface_default.xml;haarcascades" posture_monitor.py
