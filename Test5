@@ -1,30 +1,57 @@
 import cv2
 import numpy as np
+import mediapipe as mp
 import winsound  # For Windows; use `os.system('beep')` for Linux/Mac
 
-# Initialize HOG descriptor for person detection
-hog = cv2.HOGDescriptor()
-hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
+# Initialize MediaPipe Pose
+mp_pose = mp.solutions.pose
+pose = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
+mp_drawing = mp.solutions.drawing_utils
 
-def detect_slouching(frame):
-    # Detect people in the frame
-    (rects, _) = hog.detectMultiScale(frame, winStride=(4, 4), padding=(8, 8), scale=1.05)
+def calculate_angle(a, b, c):
+    """Calculate the angle between three points."""
+    a = np.array(a)  # Point A
+    b = np.array(b)  # Point B (vertex)
+    c = np.array(c)  # Point C
 
-    slouching_detected = False
+    # Calculate vectors
+    ba = a - b
+    bc = c - b
 
-    for (x, y, w, h) in rects:
-        # Draw bounding box
-        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+    # Calculate cosine of the angle
+    cosine_angle = np.dot(ba, bc) / (np.linalg.norm(ba) * np.linalg.norm(bc))
+    angle = np.arccos(cosine_angle)
 
-        # Check for slouching
-        aspect_ratio = h / w
-        if aspect_ratio > 2.5:  # Adjust threshold based on testing
-            slouching_detected = True
-            # Draw slouching alert text
-            cv2.putText(frame, "Slouching Detected!", (x, y - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)  # Red text
+    return np.degrees(angle)
 
-    return slouching_detected
+def detect_slouching(frame, results):
+    """Detect slouching based on shoulder and hip angles."""
+    if not results.pose_landmarks:
+        return False
+
+    # Get landmarks
+    landmarks = results.pose_landmarks.landmark
+
+    # Extract key points
+    left_shoulder = [landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER.value].x,
+                     landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER.value].y]
+    right_shoulder = [landmarks[mp_pose.PoseLandmark.RIGHT_SHOULDER.value].x,
+                      landmarks[mp_pose.PoseLandmark.RIGHT_SHOULDER.value].y]
+    left_hip = [landmarks[mp_pose.PoseLandmark.LEFT_HIP.value].x,
+                landmarks[mp_pose.PoseLandmark.LEFT_HIP.value].y]
+    right_hip = [landmarks[mp_pose.PoseLandmark.RIGHT_HIP.value].x,
+                 landmarks[mp_pose.PoseLandmark.RIGHT_HIP.value].y]
+
+    # Calculate angles
+    angle_left = calculate_angle(left_shoulder, left_hip, [left_hip[0], left_shoulder[1]])
+    angle_right = calculate_angle(right_shoulder, right_hip, [right_hip[0], right_shoulder[1]])
+
+    # Check for slouching
+    slouching_threshold = 160  # Adjust based on testing
+    if angle_left < slouching_threshold or angle_right < slouching_threshold:
+        return True  # Slouching detected
+
+    return False  # No slouching
 
 def play_alert():
     """Play a beep sound for slouching alert."""
@@ -42,12 +69,25 @@ def main():
             print("Error: Could not read frame.")
             break
 
-        # Detect slouching
-        slouching = detect_slouching(frame)
+        # Convert frame to RGB for MediaPipe
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-        # Play alert if slouching is detected
+        # Process frame with MediaPipe Pose
+        results = pose.process(frame_rgb)
+
+        # Draw pose landmarks
+        if results.pose_landmarks:
+            mp_drawing.draw_landmarks(
+                frame, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
+
+        # Detect slouching
+        slouching = detect_slouching(frame, results)
+
+        # Display slouching alert
         if slouching:
-            play_alert()
+            cv2.putText(frame, "Slouching Detected!", (50, 50),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)  # Red text
+            play_alert()  # Play sound alert
 
         # Show the frame
         cv2.imshow("Slouching Detection", frame)
