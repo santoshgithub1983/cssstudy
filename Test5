@@ -2,6 +2,9 @@ import cv2
 import numpy as np
 import mediapipe as mp
 import winsound  # For Windows; use `os.system('beep')` for Linux/Mac
+import tkinter as tk
+from tkinter import ttk
+from PIL import Image, ImageTk
 
 # Initialize MediaPipe Pose
 mp_pose = mp.solutions.pose
@@ -57,47 +60,85 @@ def play_alert():
     """Play a beep sound for slouching alert."""
     winsound.Beep(1000, 500)  # Frequency: 1000Hz, Duration: 500ms
 
-def main():
-    cap = cv2.VideoCapture(0)
-    if not cap.isOpened():
-        print("Error: Could not open camera.")
-        return
+class SlouchingDetectionApp:
+    def __init__(self, window, window_title):
+        self.window = window
+        self.window.title(window_title)
 
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            print("Error: Could not read frame.")
-            break
+        # Create a canvas to display the video feed
+        self.canvas = tk.Canvas(window, width=640, height=480)
+        self.canvas.pack()
 
-        # Convert frame to RGB for MediaPipe
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        # Start/Stop buttons
+        self.btn_start = ttk.Button(window, text="Start", command=self.start_detection)
+        self.btn_start.pack(side=tk.LEFT, padx=10, pady=10)
 
-        # Process frame with MediaPipe Pose
-        results = pose.process(frame_rgb)
+        self.btn_stop = ttk.Button(window, text="Stop", command=self.stop_detection)
+        self.btn_stop.pack(side=tk.LEFT, padx=10, pady=10)
 
-        # Draw pose landmarks
-        if results.pose_landmarks:
-            mp_drawing.draw_landmarks(
-                frame, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
+        # Initialize video capture
+        self.cap = cv2.VideoCapture(0)
+        if not self.cap.isOpened():
+            print("Error: Could not open camera.")
+            return
 
-        # Detect slouching
-        slouching = detect_slouching(frame, results)
+        # Flag to control detection
+        self.detection_active = False
 
-        # Display slouching alert
-        if slouching:
-            cv2.putText(frame, "Slouching Detected!", (50, 50),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)  # Red text
-            play_alert()  # Play sound alert
+        # Start the GUI update loop
+        self.update()
+        self.window.mainloop()
 
-        # Show the frame
-        cv2.imshow("Slouching Detection", frame)
+    def start_detection(self):
+        """Start slouching detection."""
+        self.detection_active = True
 
-        # Exit on 'q' key press
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+    def stop_detection(self):
+        """Stop slouching detection."""
+        self.detection_active = False
 
-    cap.release()
-    cv2.destroyAllWindows()
+    def update(self):
+        """Update the video feed and perform slouching detection."""
+        if self.detection_active:
+            ret, frame = self.cap.read()
+            if ret:
+                # Convert frame to RGB for MediaPipe
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-if __name__ == '__main__':
-    main()
+                # Process frame with MediaPipe Pose
+                results = pose.process(frame_rgb)
+
+                # Draw pose landmarks
+                if results.pose_landmarks:
+                    mp_drawing.draw_landmarks(
+                        frame, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
+
+                # Detect slouching
+                slouching = detect_slouching(frame, results)
+
+                # Display slouching alert
+                if slouching:
+                    cv2.putText(frame, "Slouching Detected!", (50, 50),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)  # Red text
+                    play_alert()  # Play sound alert
+
+                # Convert frame to ImageTk format
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                img = Image.fromarray(frame)
+                imgtk = ImageTk.PhotoImage(image=img)
+
+                # Update the canvas
+                self.canvas.create_image(0, 0, anchor=tk.NW, image=imgtk)
+                self.canvas.imgtk = imgtk
+
+        # Repeat the update
+        self.window.after(10, self.update)
+
+    def __del__(self):
+        """Release resources when the app is closed."""
+        if self.cap.isOpened():
+            self.cap.release()
+
+# Create the Tkinter app
+root = tk.Tk()
+app = SlouchingDetectionApp(root, "Slouching Detection")
