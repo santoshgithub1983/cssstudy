@@ -1,0 +1,169 @@
+
+
+(Due to technical issues, the search service is temporarily unavailable.)
+
+Here's a step-by-step guide to create a Spring Boot microservice with GitLab incident creation and AI document search capabilities:
+
+### 1. Project Setup
+```xml
+<!-- pom.xml -->
+<dependencies>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-data-jpa</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>com.theokanning.openai-gpt3-java</groupId>
+        <artifactId>service</artifactId>
+        <version>0.18.0</version>
+    </dependency>
+    <dependency>
+        <groupId>org.springframework.cloud</groupId>
+        <artifactId>spring-cloud-starter-openfeign</artifactId>
+    </dependency>
+</dependencies>
+```
+
+### 2. GitLab Integration Configuration
+```java
+@Configuration
+public class GitLabConfig {
+    @Value("${gitlab.token}")
+    private String gitlabToken;
+    
+    @Bean
+    public Feign.Builder gitlabFeignBuilder() {
+        return Feign.builder()
+                .encoder(new FormEncoder(new JacksonEncoder()))
+                .decoder(new JacksonDecoder())
+                .requestInterceptor(template -> template.header("PRIVATE-TOKEN", gitlabToken));
+    }
+}
+```
+
+### 3. GitLab Service Interface
+```java
+@FeignClient(name = "gitlab", url = "${gitlab.url}", configuration = GitLabConfig.class)
+public interface GitLabClient {
+    @PostMapping("/api/v4/projects/{projectId}/issues")
+    GitLabIssue createIssue(
+        @PathVariable("projectId") String projectId,
+        @RequestParam Map<String, ?> queryMap
+    );
+
+    @PostMapping(value = "/api/v4/projects/{projectId}/uploads", consumes = MULTIPART_FORM_DATA_VALUE)
+    GitLabUpload uploadFile(
+        @PathVariable("projectId") String projectId,
+        @RequestBody MultipartFile file
+    );
+}
+```
+
+### 4. AI Document Search Service
+```java
+@Service
+public class AISearchService {
+    private final OpenAiService openAiService;
+    private final VectorStore vectorStore;
+
+    public AISearchService(OpenAiService openAiService) {
+        this.openAiService = openAiService;
+        this.vectorStore = new SimpleVectorStore(); // Replace with actual vector DB
+    }
+
+    public String searchDocuments(String query) {
+        List<Double> queryEmbedding = openAiService.createEmbedding(query);
+        List<Document> results = vectorStore.search(queryEmbedding, 3);
+        return results.stream()
+                .map(Document::getContent)
+                .collect(Collectors.joining("\n\n"));
+    }
+}
+```
+
+### 5. Main Controller
+```java
+@RestController
+@RequestMapping("/api/incidents")
+public class IncidentController {
+    private final GitLabClient gitLabClient;
+    private final AISearchService aiSearchService;
+
+    @PostMapping
+    public ResponseEntity<?> handleIncidentRequest(
+            @RequestParam String description,
+            @RequestParam String username,
+            @RequestParam(required = false) MultipartFile[] attachments,
+            @RequestParam String prompt) {
+        
+        if (shouldCreateIncident(prompt)) {
+            GitLabIssue issue = createGitLabIssue(description, username, attachments);
+            return ResponseEntity.ok(issue);
+        } else {
+            String aiResponse = aiSearchService.searchDocuments(prompt);
+            return ResponseEntity.ok(aiResponse);
+        }
+    }
+
+    private boolean shouldCreateIncident(String prompt) {
+        // Implement AI classification or keyword detection
+        return prompt.toLowerCase().contains("create incident") || 
+               prompt.toLowerCase().contains("report issue");
+    }
+
+    private GitLabIssue createGitLabIssue(String description, String username, MultipartFile[] attachments) {
+        Map<String, Object> issueParams = new HashMap<>();
+        issueParams.put("title", "Incident from " + username);
+        issueParams.put("description", description);
+        
+        GitLabIssue issue = gitLabClient.createIssue("project-id", issueParams);
+        
+        if (attachments != null) {
+            Arrays.stream(attachments).forEach(file -> {
+                GitLabUpload upload = gitLabClient.uploadFile("project-id", file);
+                // Add attachment to issue
+            });
+        }
+        return issue;
+    }
+}
+```
+
+### 6. Application Properties
+```properties
+# application.properties
+gitlab.url=https://gitlab.com
+gitlab.token=your-private-token
+openai.api-key=your-openai-key
+```
+
+### 7. To Run and Test
+1. Create a GitLab personal access token with `api` scope
+2. Set up your OpenAI API key
+3. Start the Spring Boot application
+4. Test with:
+```bash
+curl -X POST -F "description=Server down" -F "username=admin" -F "prompt=create incident for database failure" http://localhost:8080/api/incidents
+```
+
+### Implementation Notes:
+1. Add proper error handling and validation
+2. Implement file size limits and security checks
+3. Use proper vector database (Pinecone, Chroma, etc.)
+4. Add authentication/authorization
+5. Implement rate limiting for API calls
+6. Add logging and monitoring
+7. Consider implementing asynchronous processing for large files
+
+This implementation provides:
+- GitLab incident creation with attachments
+- AI-powered document search
+- Automatic decision-making based on prompt content
+- REST API endpoints for integration
+- Expandable architecture for additional features
+
+Would you like me to elaborate on any specific component or add additional functionality?
