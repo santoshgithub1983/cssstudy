@@ -1,128 +1,4 @@
-
-(Due to technical issues, the search service is temporarily unavailable.)
-
-Here's a structured approach to create your Python microservice with FastAPI, OpenAI/RAG, and GitLab integration:
-
-### 1. Project Structure
-```bash
-.
-├── app/
-│   ├── __init__.py
-│   ├── main.py              # FastAPI app initialization
-│   ├── routers/             # API endpoints
-│   │   └── prompts.py
-│   ├── models/              # Pydantic models
-│   │   └── schemas.py
-│   ├── services/            # Business logic
-│   │   ├── ai_service.py    # OpenAI/RAG processing
-│   │   └── gitlab_service.py
-│   ├── core/                # Configuration
-│   │   ├── config.py
-│   │   └── security.py
-│   └── utils/               # Helper functions
-│       └── file_handler.py
-├── data/                    # Documents for RAG
-│   └── knowledge_base/
-├── tests/                   # Test cases
-├── requirements.txt
-├── Dockerfile
-├── .env.example
-└── README.md
-```
-
-### 2. Setup Steps
-
-#### 1. Install Dependencies (requirements.txt)
-```python
-fastapi>=0.110.0
-uvicorn[standard]
-python-dotenv
-openai
-langchain
-chromadb          # Vector DB
-gitpython         # GitLab interaction
-httpx             # Async HTTP client
-python-multipart  # File uploads
-pydantic-settings
-```
-
-#### 2. Configuration (app/core/config.py)
-```python
-from pydantic_settings import BaseSettings
-
-class Settings(BaseSettings):
-    openai_api_key: str
-    gitlab_token: str
-    gitlab_url: str = "https://gitlab.com/api/v4"
-    rag_chunk_size: int = 1000
-    
-    class Config:
-        env_file = ".env"
-
-settings = Settings()
-```
-
-### 3. Main API Endpoint (app/routers/prompts.py)
-```python
-from fastapi import APIRouter, UploadFile, File
-from app.models.schemas import PromptRequest
-from app.services import ai_service, gitlab_service
-
-router = APIRouter()
-
-@router.post("/process-prompt")
-async def process_prompt(
-    request: PromptRequest,
-    screenshot: UploadFile = File(None),
-    logs: UploadFile = File(None)
-):
-    if ai_service.is_issue_creation(request.prompt):
-        return await gitlab_service.create_issue(
-            request.username,
-            request.prompt,
-            screenshot,
-            logs
-        )
-    
-    return await ai_service.process_with_rag(request.prompt)
-```
-
-### 4. AI Service (app/services/ai_service.py)
-```python
-from langchain_community.vectorstores import Chroma
-from langchain_openai import OpenAIEmbeddings, ChatOpenAI
-from langchain_text_splitters import CharacterTextSplitter
-from app.core.config import settings
-
-class AIService:
-    def __init__(self):
-        self.embeddings = OpenAIEmbeddings(api_key=settings.openai_api_key)
-        self.vector_store = self._initialize_rag()
-        self.llm = ChatOpenAI(model="gpt-4-turbo")
-
-    def _initialize_rag(self):
-        # Load and process documents
-        documents = self._load_documents()
-        text_splitter = CharacterTextSplitter(chunk_size=settings.rag_chunk_size)
-        texts = text_splitter.split_documents(documents)
-        return Chroma.from_documents(texts, self.embeddings)
-    
-    async def process_with_rag(self, prompt: str):
-        relevant_docs = self.vector_store.similarity_search(prompt, k=3)
-        context = "\n".join([doc.page_content for doc in relevant_docs])
-        
-        response = self.llm.invoke(
-            f"Context: {context}\n\nQuestion: {prompt}"
-        )
-        return {"response": response.content}
-
-    @staticmethod
-    def is_issue_creation(prompt: str) -> bool:
-        return "create issue" in prompt.lower()
-```
-
-### 5. GitLab Service (app/services/gitlab_service.py)
-```python
+from fastapi import UploadFile, HTTPException
 import httpx
 from app.core.config import settings
 
@@ -132,89 +8,73 @@ class GitLabService:
         self.headers = {"PRIVATE-TOKEN": settings.gitlab_token}
 
     async def upload_file(self, file: UploadFile):
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{self.base_url}/uploads",
-                files={"file": (file.filename, await file.read())},
-                headers=self.headers
+        """
+        Uploads a file to GitLab and returns the markdown link for the uploaded file.
+        """
+        try:
+            # Read the file content
+            file_content = await file.read()
+            
+            # Upload the file to GitLab
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{self.base_url}/uploads",
+                    files={"file": (file.filename, file_content)},
+                    headers=self.headers
+                )
+            
+            # Check for errors
+            if response.status_code != 201:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"Failed to upload file to GitLab: {response.text}"
+                )
+            
+            # Return the markdown link for the uploaded file
+            return response.json()["markdown"]
+        
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"An error occurred while uploading the file: {str(e)}"
             )
-        return response.json()["markdown"]
 
     async def create_issue(self, username: str, description: str, 
-                          screenshot: UploadFile, logs: UploadFile):
+                          screenshot: UploadFile = None, logs: UploadFile = None):
+        """
+        Creates a GitLab issue with the provided description and optional attachments.
+        """
         attachments = []
         
-        for file in [screenshot, logs]:
-            if file:
-                markdown = await self.upload_file(file)
-                attachments.append(markdown)
+        # Upload screenshot if provided
+        if screenshot:
+            screenshot_markdown = await self.upload_file(screenshot)
+            attachments.append(screenshot_markdown)
         
+        # Upload logs if provided
+        if logs:
+            logs_markdown = await self.upload_file(logs)
+            attachments.append(logs_markdown)
+        
+        # Prepare issue data
         issue_data = {
             "title": f"Issue from {username}",
             "description": f"{description}\n\nAttachments:\n" + "\n".join(attachments)
         }
         
+        # Create the issue in GitLab
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                f"{self.base_url}/projects/{project_id}/issues",
+                f"{self.base_url}/projects/{settings.gitlab_project_id}/issues",
                 json=issue_data,
                 headers=self.headers
             )
         
+        # Check for errors
+        if response.status_code != 201:
+            raise HTTPException(
+                status_code=response.status_code,
+                detail=f"Failed to create GitLab issue: {response.text}"
+            )
+        
         return response.json()
-```
-
-### 6. Run the Service
-```bash
-# Start with hot reload
-uvicorn app.main:app --reload
-
-# Production
-uvicorn app.main:app --host 0.0.0.0 --port 80
-```
-
-### 7. Dockerfile
-```dockerfile
-FROM python:3.11-slim
-
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY . .
-
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "80"]
-```
-
-### Key Features:
-1. **RAG Implementation**: Uses ChromaDB for vector storage and OpenAI embeddings
-2. **GitLab Integration**: Handles file uploads and issue creation through async HTTP calls
-3. **Prompt Analysis**: Simple keyword detection for issue creation triggers
-4. **File Handling**: Supports multipart file uploads for screenshots and logs
-5. **Configuration**: Uses environment variables for security
-
-### Testing the API
-```bash
-# Regular prompt
-curl -X POST http://localhost:8000/process-prompt \
-  -H "Content-Type: application/json" \
-  -d '{"prompt":"Explain microservices architecture", "username":"user1"}'
-
-# Create issue
-curl -X POST http://localhost:8000/process-prompt \
-  -F "prompt=Create issue: UI button not working" \
-  -F "username=user1" \
-  -F "screenshot=@screenshot.png" \
-  -F "logs=@network.log"
-```
-
-### Next Steps:
-1. Add authentication middleware
-2. Implement rate limiting
-3. Add logging and monitoring
-4. Set up CI/CD pipeline
-5. Add integration tests
-6. Implement async document processing for RAG
-7. Add caching for frequent RAG queries
-
-This architecture provides a scalable foundation for handling both AI processing and GitLab operations while maintaining separation of concerns.
