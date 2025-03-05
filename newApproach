@@ -1,0 +1,307 @@
+Certainly! Below is a comprehensive step-by-step guide to implementing the Python microservice with OpenAI, GitLab integration, and flexible document search using Retrieval-Augmented Generation (RAG) with LangChain. This guide includes all recent inputs and modifications.
+
+Project Summary
+Project Name: Python Microservice with OpenAI, GitLab Integration, and Document Search using RAG
+
+Objective: Create a microservice that processes user prompts using OpenAI, creates GitLab issues with attachments, and performs document searches using RAG with LangChain.
+
+Key Features:
+
+OpenAI Integration: Process user prompts using OpenAI's language model.
+GitLab Integration: Create issues and upload attachments using GitLab API.
+Document Search: Use RAG with LangChain to search and retrieve information from documents stored in various locations.
+Environment Variables: Store sensitive information like API keys and tokens securely.
+FastAPI: Build the microservice using FastAPI for efficient and scalable API development.
+Project Structure
+Copy
+my_microservice/
+│
+├── app/
+│   ├── __init__.py
+│   ├── main.py
+│   ├── config.py
+│   ├── api/
+│   │   ├── __init__.py
+│   │   ├── endpoints/
+│   │   │   ├── __init__.py
+│   │   │   ├── openai_endpoint.py
+│   │   │   ├── gitlab_endpoint.py
+│   │   │   └── document_search_endpoint.py
+│   │   └── dependencies.py
+│   ├── core/
+│   │   ├── __init__.py
+│   │   ├── openai_client.py
+│   │   ├── gitlab_client.py
+│   │   ├── document_search.py
+│   │   └── storage/
+│   │       ├── __init__.py
+│   │       ├── base_storage.py
+│   │       ├── local_storage.py
+│   │       └── sharepoint_storage.py
+│   ├── models/
+│   │   ├── __init__.py
+│   │   ├── request_models.py
+│   │   └── response_models.py
+│   └── utils/
+│       ├── __init__.py
+│       └── environment.py
+│
+├── tests/
+│   ├── __init__.py
+│   ├── test_openai_endpoint.py
+│   ├── test_gitlab_endpoint.py
+│   └── test_document_search_endpoint.py
+│
+├── .env
+├── requirements.txt
+└── README.md
+Step-by-Step Implementation Guide
+Step 1: Setup Environment Variables
+Create a .env file in the root directory to store sensitive information:
+
+Copy
+OPENAI_API_KEY=your_openai_api_key
+OPENAI_API_BASE=https://api.openai.com/v1  # Default OpenAI API base URL
+GITLAB_TOKEN=your_gitlab_token
+GITLAB_URL=your_gitlab_url
+SHAREPOINT_SITE_URL=your_sharepoint_site_url
+SHAREPOINT_CLIENT_ID=your_sharepoint_client_id
+SHAREPOINT_CLIENT_SECRET=your_sharepoint_client_secret
+Step 2: Install Dependencies
+Create a requirements.txt file and add the necessary dependencies:
+
+Copy
+fastapi
+uvicorn
+python-dotenv
+openai
+python-gitlab
+langchain
+Install the dependencies using:
+
+Copy
+pip install -r requirements.txt
+Step 3: Configure Environment Variables
+Create utils/environment.py to load environment variables:
+
+Copy
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_API_BASE = os.getenv("OPENAI_API_BASE")
+GITLAB_TOKEN = os.getenv("GITLAB_TOKEN")
+GITLAB_URL = os.getenv("GITLAB_URL")
+SHAREPOINT_SITE_URL = os.getenv("SHAREPOINT_SITE_URL")
+SHAREPOINT_CLIENT_ID = os.getenv("SHAREPOINT_CLIENT_ID")
+SHAREPOINT_CLIENT_SECRET = os.getenv("SHAREPOINT_CLIENT_SECRET")
+Step 4: Setup FastAPI Application
+Create app/main.py to initialize the FastAPI app:
+
+Copy
+from fastapi import FastAPI
+from app.api.endpoints import openai_endpoint, gitlab_endpoint, document_search_endpoint
+
+app = FastAPI()
+
+app.include_router(openai_endpoint.router)
+app.include_router(gitlab_endpoint.router)
+app.include_router(document_search_endpoint.router)
+Step 5: Create API Endpoints
+Define endpoints in app/api/endpoints/.
+
+OpenAI Endpoint: openai_endpoint.py
+Copy
+from fastapi import APIRouter
+from app.core.openai_client import process_prompt
+from app.models.request_models import OpenAIPrompt
+
+router = APIRouter()
+
+@router.post("/process-prompt/")
+async def process_openai_prompt(prompt: OpenAIPrompt):
+    response = process_prompt(prompt.text)
+    return {"response": response}
+GitLab Endpoint: gitlab_endpoint.py
+Copy
+from fastapi import APIRouter, HTTPException
+from app.core.gitlab_client import create_issue
+from app.models.request_models import GitLabIssueRequest
+
+router = APIRouter()
+
+@router.post("/create-issue/")
+async def create_gitlab_issue(issue_request: GitLabIssueRequest):
+    try:
+        issue = create_issue(
+            project_id=issue_request.project_id,
+            username=issue_request.username,
+            description=issue_request.description,
+            screenshot=issue_request.screenshot,
+            network_logs=issue_request.network_logs
+        )
+        return {"issue_id": issue.id, "issue_url": issue.web_url}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+Document Search Endpoint: document_search_endpoint.py
+Copy
+from fastapi import APIRouter
+from app.core.document_search import setup_document_search, search_documents
+from app.core.storage.local_storage import LocalStorage
+from app.models.request_models import DocumentSearchRequest
+
+router = APIRouter()
+
+# Initialize storage (example with local storage)
+storage = LocalStorage("path/to/local/documents")
+qa_chain = setup_document_search(storage)
+
+@router.post("/search-documents/")
+async def search_documents_endpoint(request: DocumentSearchRequest):
+    result = search_documents(qa_chain, request.query)
+    return {"answer": result}
+Step 6: Implement Core Logic
+Implement the core logic for OpenAI, GitLab, and document search in app/core/.
+
+OpenAI Client: openai_client.py
+Copy
+import openai
+from app.utils.environment import OPENAI_API_KEY, OPENAI_API_BASE
+
+openai.api_key = OPENAI_API_KEY
+
+# Set the base URL for the OpenAI API if a custom endpoint is specified
+if OPENAI_API_BASE:
+    openai.api_base = OPENAI_API_BASE
+
+def process_prompt(prompt: str):
+    response = openai.Completion.create(
+        engine="text-davinci-003",
+        prompt=prompt,
+        max_tokens=150
+    )
+    return response.choices[0].text.strip()
+GitLab Client: gitlab_client.py
+Copy
+import gitlab
+from app.utils.environment import GITLAB_TOKEN, GITLAB_URL
+
+gl = gitlab.Gitlab(GITLAB_URL, private_token=GITLAB_TOKEN)
+
+def create_issue(project_id: int, username: str, description: str, screenshot: bytes = None, network_logs: str = None):
+    issue = gl.projects.get(project_id).issues.create({
+        'title': f'Issue created by {username}',
+        'description': description
+    })
+
+    if screenshot:
+        upload = gl.uploads.create({'file': ('screenshot.png', screenshot)})
+        issue.notes.create({'body': f"Screenshot: ![screenshot]({upload['url']})"})
+
+    if network_logs:
+        issue.description = f"{issue.description}\n\n**Network Logs:**\n{network_logs}"
+        issue.save()
+
+    return issue
+Document Search: document_search.py
+Copy
+from langchain.chains import RetrievalQA
+from langchain.embeddings import OpenAIEmbeddings
+from langchain.vectorstores import FAISS
+from langchain.text_splitter import CharacterTextSplitter
+from langchain.llms import OpenAI
+from .storage.base_storage import BaseStorage
+
+def setup_document_search(storage: BaseStorage):
+    documents = storage.load_documents()
+    text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=0)
+    texts = text_splitter.split_documents(documents)
+    embeddings = OpenAIEmbeddings()
+    vector_store = FAISS.from_documents(texts, embeddings)
+    qa_chain = RetrievalQA.from_chain_type(
+        llm=OpenAI(),
+        chain_type="stuff",
+        retriever=vector_store.as_retriever(),
+        return_source_documents=True
+    )
+    return qa_chain
+
+def search_documents(qa_chain, query: str):
+    result = qa_chain({"query": query})
+    return result['result']
+Step 7: Define Storage Abstraction
+Create storage abstraction in app/core/storage/.
+
+Base Storage: base_storage.py
+Copy
+from abc import ABC, abstractmethod
+from typing import List
+
+class BaseStorage(ABC):
+    @abstractmethod
+    def load_documents(self) -> List[str]:
+        pass
+Local Storage: local_storage.py
+Copy
+import os
+from .base_storage import BaseStorage
+
+class LocalStorage(BaseStorage):
+    def __init__(self, directory_path: str):
+        self.directory_path = directory_path
+
+    def load_documents(self) -> List[str]:
+        documents = []
+        for filename in os.listdir(self.directory_path):
+            file_path = os.path.join(self.directory_path, filename)
+            with open(file_path, 'r') as file:
+                documents.append(file.read())
+        return documents
+SharePoint Storage: sharepoint_storage.py
+Copy
+from .base_storage import BaseStorage
+from typing import List
+
+class SharePointStorage(BaseStorage):
+    def __init__(self, site_url: str, client_id: str, client_secret: str):
+        self.client = SharePointClient(site_url, client_id, client_secret)
+
+    def load_documents(self) -> List[str]:
+        documents = []
+        for file in self.client.list_files("/path/to/documents"):
+            documents.append(file.content)
+        return documents
+Step 8: Define Request Models
+Define request models in app/models/request_models.py:
+
+Copy
+from pydantic import BaseModel
+from typing import Optional
+
+class OpenAIPrompt(BaseModel):
+    text: str
+
+class GitLabIssueRequest(BaseModel):
+    project_id: int
+    username: str
+    description: str
+    screenshot: Optional[bytes] = None
+    network_logs: Optional[str] = None
+
+class DocumentSearchRequest(BaseModel):
+    query: str
+Step 9: Run the Application
+Use uvicorn to run the FastAPI application:
+
+Copy
+uvicorn app.main:app --reload
+Step 10: Testing
+Write tests in the tests directory to ensure your endpoints and core logic work as expected.
+
+Additional Considerations
+Security: Implement authentication and authorization mechanisms to secure your endpoints.
+Error Handling: Add proper error handling and logging to manage exceptions.
+Documentation: Use tools like Swagger UI to document your API endpoints.
+By following these steps, you can create a robust microservice that integrates OpenAI, GitLab, and flexible document search using RAG with LangChain. If you have any further questions or need additional assistance, feel free to ask!
