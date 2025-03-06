@@ -245,3 +245,121 @@ Use logging for debugging and monitoring.
 Write unit tests for each component.
 
 This implementation provides a robust Python microservice with FastAPI, OpenAI RAG, GitLab integration, and PostgreSQL.
+
+=================================== UPDATES ===============
+
+
+
+You're absolutely correct! In the provided code, while openai.api_base is set, it is not being used in the langchain components like OpenAIEmbeddings or OpenAI. This is because langchain uses its own internal configuration for the OpenAI API and does not directly use the openai library's global settings.
+
+To fix this, we need to explicitly pass the openai_api_base (or equivalent) to the langchain components. Unfortunately, as of now, langchain does not natively support passing a custom api_base directly to its OpenAI integrations. However, we can work around this limitation by using the openai library directly for certain tasks or by modifying the langchain code if necessary.
+
+Updated app/rag.py
+Here’s how you can modify the code to ensure the custom api_base is used:
+
+Option 1: Use openai Library Directly
+If you don’t need langchain for document retrieval and just want to use the OpenAI API directly, you can replace the RAG logic with a direct call to the OpenAI API:
+
+python
+Copy
+import openai
+import os
+
+# Set OpenAI API key and base URL
+openai.api_key = os.getenv("OPENAI_API_KEY")
+openai.api_base = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")  # Default to OpenAI if not set
+
+def process_prompt_with_rag(prompt: str):
+    try:
+        # Call OpenAI API directly
+        response = openai.Completion.create(
+            engine="text-davinci-003",  # Or any other model
+            prompt=prompt,
+            max_tokens=100
+        )
+        return response.choices[0].text.strip()
+    except Exception as e:
+        return f"An error occurred: {e}"
+Option 2: Modify LangChain to Use Custom api_base
+If you want to stick with langchain, you can modify the OpenAI class to accept a custom api_base. Here's an example:
+
+python
+Copy
+from langchain.llms import OpenAI as LangchainOpenAI
+from langchain.embeddings import OpenAIEmbeddings
+from langchain.document_loaders import DirectoryLoader
+from langchain.vectorstores import FAISS
+from langchain.chains import RetrievalQA
+import openai
+import os
+
+# Set OpenAI API key and base URL
+openai.api_key = os.getenv("OPENAI_API_KEY")
+openai.api_base = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")  # Default to OpenAI if not set
+
+# Custom OpenAI class to accept api_base
+class CustomOpenAI(LangchainOpenAI):
+    def __init__(self, openai_api_key, openai_api_base, **kwargs):
+        super().__init__(openai_api_key=openai_api_key, **kwargs)
+        self.openai_api_base = openai_api_base
+
+    def _call(self, prompt, stop=None):
+        import openai
+        openai.api_key = self.openai_api_key
+        openai.api_base = self.openai_api_base
+        response = openai.Completion.create(
+            engine=self.model_name,
+            prompt=prompt,
+            max_tokens=self.max_tokens,
+            stop=stop
+        )
+        return response.choices[0].text.strip()
+
+# Load documents
+def load_documents():
+    loader = DirectoryLoader("documents", glob="**/*.pdf")
+    documents = loader.load()
+    return documents
+
+# Initialize RAG
+def initialize_rag():
+    documents = load_documents()
+    embeddings = OpenAIEmbeddings(openai_api_key=openai.api_key)
+    vectorstore = FAISS.from_documents(documents, embeddings)
+    qa_chain = RetrievalQA.from_chain_type(
+        llm=CustomOpenAI(openai_api_key=openai.api_key, openai_api_base=openai.api_base, model_name="text-davinci-003"),
+        chain_type="stuff",
+        retriever=vectorstore.as_retriever()
+    )
+    return qa_chain
+
+# Process prompt with RAG
+def process_prompt_with_rag(prompt: str):
+    qa_chain = initialize_rag()
+    response = qa_chain.run(prompt)
+    return response
+Explanation of Changes
+Custom OpenAI Class:
+
+We created a CustomOpenAI class that inherits from LangchainOpenAI.
+
+This class accepts openai_api_base and sets it globally before making API calls.
+
+Using CustomOpenAI in RAG:
+
+The CustomOpenAI class is used instead of the default OpenAI class in the RetrievalQA chain.
+
+Setting api_base:
+
+The openai.api_base is set globally before making API calls, ensuring the custom endpoint is used.
+
+Testing the Updated Code
+Start the FastAPI service:
+
+bash
+Copy
+uvicorn app.main:app --reload
+Test the /process-prompt endpoint using Postman or the Swagger UI (http://127.0.0.1:8000/docs).
+
+
+
