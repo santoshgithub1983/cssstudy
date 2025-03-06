@@ -1,0 +1,153 @@
+Thank you, using ur code of rag.py , it did not resolve sentence_transformers , i started instllaing it using pip but the filesize is too big
+You're welcome! I understand that the sentence-transformers library can be large due to its dependencies. If you're looking for a lighter alternative to sentence-transformers, you can use OpenAI's embeddings directly or a smaller embedding model like Hugging Face's transformers with a lightweight model such as all-MiniLM-L6-v2.
+
+Below, I'll provide an updated version of rag.py using OpenAI embeddings (which you're already using for prompt processing) and FAISS. This avoids the need for sentence-transformers and keeps the setup lightweight.
+
+Updated rag.py Using OpenAI Embeddings
+Install the required dependencies:
+
+bash
+Copy
+pip install faiss-cpu openai numpy
+Update app/utils/rag.py:
+
+python
+Copy
+import faiss
+import numpy as np
+import openai
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+# Initialize OpenAI
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
+# Initialize FAISS index
+dimension = 1536  # OpenAI embeddings have 1536 dimensions
+index = faiss.IndexFlatL2(dimension)  # L2 distance index
+
+# Store documents and their embeddings
+documents = []
+document_embeddings = []
+
+def get_embedding(text: str):
+    """Get embedding for a given text using OpenAI."""
+    response = openai.Embedding.create(
+        input=[text],
+        model="text-embedding-3-small"  # Use the smaller embedding model
+    )
+    return response['data'][0]['embedding']
+
+def add_documents(new_documents: list):
+    """Add documents to the FAISS index."""
+    global documents, document_embeddings
+    documents.extend(new_documents)
+    embeddings = np.array([get_embedding(doc) for doc in new_documents])
+    if document_embeddings:
+        document_embeddings = np.vstack((document_embeddings, embeddings))
+    else:
+        document_embeddings = embeddings
+    index.add(embeddings)
+
+def search_documents(query: str, top_k: int = 3):
+    """Search documents using FAISS."""
+    query_embedding = np.array([get_embedding(query)])
+    distances, indices = index.search(query_embedding, top_k)
+    return [documents[i] for i in indices[0]]
+Step 2: Update the Code to Use OpenAI Embeddings
+Replace the add_documents call in app/main.py:
+
+python
+Copy
+from app.utils.rag import add_documents
+
+# Add sample documents to the FAISS index
+add_documents([
+    "This is a sample document about FastAPI.",
+    "GitLab API documentation can be found at https://docs.gitlab.com.",
+    "OpenAI provides powerful language models for natural language processing."
+])
+No changes are needed in the /chat endpoint or other files since the search_documents function signature remains the same.
+
+Step 3: Test the Updated Microservice
+Start the service:
+
+bash
+Copy
+uvicorn app.main:app --reload
+Test the /chat endpoint:
+
+bash
+Copy
+curl -X POST "http://127.0.0.1:8000/chat" -H "Content-Type: application/json" -d '{"prompt": "Tell me about FastAPI"}'
+Verify that the RAG-based search works with OpenAI embeddings and FAISS.
+
+Advantages of This Approach
+No need for sentence-transformers: This reduces the installation size and complexity.
+
+Uses OpenAI embeddings: You're already using OpenAI for prompt processing, so this keeps the setup consistent.
+
+Lightweight: FAISS is efficient and works well for small to medium-sized datasets.
+
+Alternative: Use Hugging Face Transformers (Lightweight)
+If you still want to use a local embedding model (without sentence-transformers), you can use the transformers library with a smaller model like all-MiniLM-L6-v2.
+
+Install the transformers library:
+
+bash
+Copy
+pip install transformers
+Update app/utils/rag.py:
+
+python
+Copy
+import faiss
+import numpy as np
+from transformers import AutoTokenizer, AutoModel
+import torch
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+# Load a lightweight embedding model from Hugging Face
+tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
+model = AutoModel.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
+
+# Initialize FAISS index
+dimension = 384  # all-MiniLM-L6-v2 has 384 dimensions
+index = faiss.IndexFlatL2(dimension)  # L2 distance index
+
+# Store documents and their embeddings
+documents = []
+document_embeddings = []
+
+def get_embedding(text: str):
+    """Get embedding for a given text using a local model."""
+    inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True)
+    with torch.no_grad():
+        outputs = model(**inputs)
+    return outputs.last_hidden_state.mean(dim=1).squeeze().numpy()
+
+def add_documents(new_documents: list):
+    """Add documents to the FAISS index."""
+    global documents, document_embeddings
+    documents.extend(new_documents)
+    embeddings = np.array([get_embedding(doc) for doc in new_documents])
+    if document_embeddings:
+        document_embeddings = np.vstack((document_embeddings, embeddings))
+    else:
+        document_embeddings = embeddings
+    index.add(embeddings)
+
+def search_documents(query: str, top_k: int = 3):
+    """Search documents using FAISS."""
+    query_embedding = np.array([get_embedding(query)])
+    distances, indices = index.search(query_embedding, top_k)
+    return [documents[i] for i in indices[0]]
+Final Notes
+The OpenAI embeddings + FAISS approach is lightweight and easy to set up.
+
+If you prefer a local model, the Hugging Face transformers approach with all-MiniLM-L6-v2 is a good alternative.
