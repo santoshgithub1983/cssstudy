@@ -361,5 +361,153 @@ Copy
 uvicorn app.main:app --reload
 Test the /process-prompt endpoint using Postman or the Swagger UI (http://127.0.0.1:8000/docs).
 
+============== UPDATE 2 ================
 
+
+
+Ah, I see! If your team members are using LangGraph or AzureChatOpenAI to access Azure OpenAI deployments, we can integrate that into your project as well. The AzureChatOpenAI class is specifically designed for Azure OpenAI deployments and simplifies the process of connecting to Azure-hosted models like GPT-4.
+
+Let’s update your code to use AzureChatOpenAI instead of the custom OpenAI class. This will ensure compatibility with Azure OpenAI and make the code cleaner.
+
+Updated app/rag.py
+Here’s how you can modify the code to use AzureChatOpenAI:
+
+python
+Copy
+from langchain.document_loaders import DirectoryLoader
+from langchain.embeddings import OpenAIEmbeddings
+from langchain.vectorstores import FAISS
+from langchain.chains import RetrievalQA
+from langchain.chat_models import AzureChatOpenAI  # Use AzureChatOpenAI for Azure deployments
+import os
+
+# Set Azure OpenAI credentials
+azure_openai_api_key = os.getenv("AZURE_OPENAI_API_KEY")
+azure_openai_api_base = os.getenv("AZURE_OPENAI_API_BASE")  # Azure endpoint
+azure_deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4")  # Deployment name
+
+# Load documents
+def load_documents():
+    loader = DirectoryLoader("documents", glob="**/*.pdf")
+    documents = loader.load()
+    return documents
+
+# Initialize RAG
+def initialize_rag():
+    documents = load_documents()
+    embeddings = OpenAIEmbeddings(openai_api_key=azure_openai_api_key)
+    vectorstore = FAISS.from_documents(documents, embeddings)
+
+    # Use AzureChatOpenAI for the LLM
+    llm = AzureChatOpenAI(
+        openai_api_key=azure_openai_api_key,
+        openai_api_base=azure_openai_api_base,
+        deployment_name=azure_deployment_name,
+        openai_api_version="2023-05-15"  # Specify the API version
+    )
+
+    qa_chain = RetrievalQA.from_chain_type(
+        llm=llm,
+        chain_type="stuff",
+        retriever=vectorstore.as_retriever()
+    )
+    return qa_chain
+
+# Process prompt with RAG
+def process_prompt_with_rag(prompt: str):
+    qa_chain = initialize_rag()
+    response = qa_chain.run(prompt)
+    return response
+Key Changes
+Use AzureChatOpenAI:
+
+Replaced the custom OpenAI class with AzureChatOpenAI, which is designed for Azure OpenAI deployments.
+
+The AzureChatOpenAI class accepts:
+
+openai_api_key: Your Azure OpenAI API key.
+
+openai_api_base: Your Azure OpenAI endpoint (e.g., https://<your-resource>.openai.azure.com).
+
+deployment_name: The name of your Azure OpenAI deployment (e.g., gpt-4).
+
+openai_api_version: The API version (e.g., 2023-05-15).
+
+Environment Variables:
+
+Added new environment variables for Azure OpenAI:
+
+env
+Copy
+AZURE_OPENAI_API_KEY=your_azure_openai_api_key
+AZURE_OPENAI_API_BASE=https://<your-resource>.openai.azure.com
+AZURE_OPENAI_DEPLOYMENT_NAME=gpt-4
+Removed Custom OpenAI Class:
+
+Since AzureChatOpenAI handles the Azure-specific configuration, we no longer need the custom OpenAI class.
+
+Updated .env File
+Add the following Azure OpenAI credentials to your .env file:
+
+env
+Copy
+# Azure OpenAI
+AZURE_OPENAI_API_KEY=your_azure_openai_api_key
+AZURE_OPENAI_API_BASE=https://<your-resource>.openai.azure.com
+AZURE_OPENAI_DEPLOYMENT_NAME=gpt-4
+
+# GitLab
+GITLAB_API_URL=https://gitlab.com/api/v4
+GITLAB_TOKEN=your_gitlab_token
+
+# PostgreSQL
+DB_NAME=mydatabase
+DB_USER=myuser
+DB_PASSWORD=mypassword
+DB_HOST=localhost
+Testing the Updated Code
+Start the FastAPI service:
+
+bash
+Copy
+uvicorn app.main:app --reload
+Test the /process-prompt endpoint using Postman or the Swagger UI (http://127.0.0.1:8000/docs).
+
+Example Request
+Postman Configuration
+Method: POST
+
+URL: http://127.0.0.1:8000/process-prompt
+
+Headers:
+
+Content-Type: application/json
+
+Body (raw JSON):
+
+json
+Copy
+{
+  "prompt": "What is the capital of France?"
+}
+Expected Response
+json
+Copy
+{
+  "response": "The capital of France is Paris."
+}
+Key Notes
+Azure OpenAI Deployment:
+
+Ensure your Azure OpenAI resource is properly configured with a deployment (e.g., gpt-4).
+
+Use the correct deployment_name in the .env file.
+
+LangChain Compatibility:
+
+AzureChatOpenAI is fully compatible with LangChain and can be used in chains like RetrievalQA.
+
+API Version:
+
+The openai_api_version is required for Azure OpenAI. The default is 2023-05-15, but you can use a different version if needed.
 
