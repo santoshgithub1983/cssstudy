@@ -1,0 +1,214 @@
+USE CASE 1 : PYTHON MICROSERVICE
+
+1. I want to create a python microservice using Fast API and openai with RAG [document search]
+2.  User flow
+     a. If User enters the prompt if the prompt do no include any words related to ticket , incident , issue , the service MUST return reply to prompt    
+	   based on the documents shared in .pdf, .doc, .docx, .txt or any human redable format.. using Langchain-openai
+	   
+	 b. If user enters a prompt that contains keywords such as issue, incident, ticket then service should ask user whether he wants to create an incident/ticket/issue, if user says yes then should trigger a seperate chain wherein service MUST be able to call  collect the user inputs [user name , useremail address ] along with the screenshots and network logs and call gitlab api /issues & /uploads to attach and create issue in GITLAB
+
+
+3. The service should also save entry of the created GITLAB issue details along with username other details to a postgres database
+4. Service should follow best practices of building python microservice, along with storing secrets etc in os.environment 
+5. should contain a docker to build locally and in CICD pipeline
+To create a Python microservice using FastAPI, OpenAI with RAG (Retrieval-Augmented Generation), and integrate it with GitLab for issue creation, follow the steps below. This implementation will also include saving issue details to a PostgreSQL database and adhering to best practices for microservices, including Dockerization and environment variable management.
+
+Steps to Implement the Microservice
+1. Project Setup
+Install Required Libraries:
+
+bash
+Copy
+pip install fastapi uvicorn langchain openai python-dotenv psycopg2 requests python-multipart
+Project Structure:
+
+Copy
+microservice/
+├── app/
+│   ├── __init__.py
+│   ├── main.py              # FastAPI app
+│   ├── rag.py               # RAG document search logic
+│   ├── gitlab_integration.py # GitLab API integration
+│   ├── database.py          # PostgreSQL database operations
+│   └── schemas.py           # Pydantic models for request/response
+├── documents/               # Folder to store user-uploaded documents
+├── Dockerfile
+├── requirements.txt
+├── .env                     # Environment variables
+└── README.md
+2. FastAPI Application
+Create the FastAPI app in app/main.py:
+
+python
+Copy
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi.responses import JSONResponse
+from app.rag import process_prompt_with_rag
+from app.gitlab_integration import create_gitlab_issue
+from app.database import save_issue_to_db
+from app.schemas import UserInput
+import os
+
+app = FastAPI()
+
+# Environment variables
+GITLAB_API_URL = os.getenv("GITLAB_API_URL")
+GITLAB_TOKEN = os.getenv("GITLAB_TOKEN")
+
+@app.post("/process-prompt")
+async def process_prompt(prompt: str):
+    # Check if the prompt contains keywords for ticket/issue
+    if any(keyword in prompt.lower() for keyword in ["ticket", "incident", "issue"]):
+        return JSONResponse(content={"message": "Do you want to create a ticket/issue?"})
+
+    # Process prompt with RAG
+    response = process_prompt_with_rag(prompt)
+    return JSONResponse(content={"response": response})
+
+@app.post("/create-issue")
+async def create_issue(user_input: UserInput, screenshot: UploadFile = File(None), network_logs: UploadFile = File(None)):
+    # Create GitLab issue
+    issue_url = create_gitlab_issue(user_input, screenshot, network_logs)
+
+    # Save issue details to PostgreSQL
+    save_issue_to_db(user_input, issue_url)
+
+    return JSONResponse(content={"message": "Issue created successfully", "issue_url": issue_url})
+3. RAG Document Search
+Implement RAG in app/rag.py:
+
+python
+Copy
+from langchain.document_loaders import DirectoryLoader
+from langchain.embeddings import OpenAIEmbeddings
+from langchain.vectorstores import FAISS
+from langchain.chains import RetrievalQA
+from langchain.llms import OpenAI
+import os
+
+# Load documents
+def load_documents():
+    loader = DirectoryLoader("documents", glob="**/*.pdf")
+    documents = loader.load()
+    return documents
+
+# Initialize RAG
+def initialize_rag():
+    documents = load_documents()
+    embeddings = OpenAIEmbeddings(openai_api_key=os.getenv("OPENAI_API_KEY"))
+    vectorstore = FAISS.from_documents(documents, embeddings)
+    qa_chain = RetrievalQA.from_chain_type(
+        llm=OpenAI(),
+        chain_type="stuff",
+        retriever=vectorstore.as_retriever()
+    )
+    return qa_chain
+
+# Process prompt with RAG
+def process_prompt_with_rag(prompt: str):
+    qa_chain = initialize_rag()
+    response = qa_chain.run(prompt)
+    return response
+4. GitLab Integration
+Implement GitLab API calls in app/gitlab_integration.py:
+
+python
+Copy
+import requests
+import os
+
+def create_gitlab_issue(user_input, screenshot=None, network_logs=None):
+    headers = {"PRIVATE-TOKEN": os.getenv("GITLAB_TOKEN")}
+    data = {
+        "title": user_input.title,
+        "description": user_input.description,
+        "labels": "incident"
+    }
+
+    # Create issue
+    response = requests.post(f"{os.getenv('GITLAB_API_URL')}/issues", headers=headers, json=data)
+    issue_id = response.json().get("iid")
+
+    # Upload attachments
+    if screenshot:
+        upload_file_to_gitlab(issue_id, screenshot, "screenshot.png")
+    if network_logs:
+        upload_file_to_gitlab(issue_id, network_logs, "network_logs.txt")
+
+    return response.json().get("web_url")
+
+def upload_file_to_gitlab(issue_id, file, filename):
+    headers = {"PRIVATE-TOKEN": os.getenv("GITLAB_TOKEN")}
+    files = {"file": (filename, file.file)}
+    response = requests.post(f"{os.getenv('GITLAB_API_URL')}/issues/{issue_id}/uploads", headers=headers, files=files)
+    return response.json()
+5. PostgreSQL Database
+Implement database operations in app/database.py:
+
+python
+Copy
+import psycopg2
+from app.schemas import UserInput
+
+def save_issue_to_db(user_input: UserInput, issue_url: str):
+    conn = psycopg2.connect(
+        dbname=os.getenv("DB_NAME"),
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASSWORD"),
+        host=os.getenv("DB_HOST")
+    )
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO issues (username, email, issue_url) VALUES (%s, %s, %s)",
+        (user_input.username, user_input.email, issue_url)
+    )
+    conn.commit()
+    cursor.close()
+    conn.close()
+6. Dockerfile
+Create a Dockerfile for containerization:
+
+dockerfile
+Copy
+FROM python:3.9-slim
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+COPY . .
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+7. Environment Variables
+Store secrets in .env:
+
+env
+Copy
+OPENAI_API_KEY=your_openai_api_key
+GITLAB_API_URL=https://gitlab.com/api/v4
+GITLAB_TOKEN=your_gitlab_token
+DB_NAME=mydatabase
+DB_USER=myuser
+DB_PASSWORD=mypassword
+DB_HOST=localhost
+8. Run the Microservice
+Build and run the Docker container:
+
+bash
+Copy
+docker build -t python-microservice .
+docker run -p 8000:8000 python-microservice
+Test the API using curl or Postman.
+
+Best Practices
+Use environment variables for secrets.
+
+Validate inputs using Pydantic models.
+
+Handle exceptions gracefully.
+
+Use logging for debugging and monitoring.
+
+Write unit tests for each component.
+
+This implementation provides a robust Python microservice with FastAPI, OpenAI RAG, GitLab integration, and PostgreSQL.
