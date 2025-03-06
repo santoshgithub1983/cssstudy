@@ -191,6 +191,39 @@ DB_NAME=mydatabase
 DB_USER=myuser
 DB_PASSWORD=mypassword
 DB_HOST=localhost
+
+
+app/schemas.py
+This file defines the Pydantic models for input validation and response schemas.
+
+python
+Copy
+from pydantic import BaseModel
+from typing import Optional
+
+# Model for user input when creating an issue
+class UserInput(BaseModel):
+    username: str
+    email: str
+    title: str
+    description: str
+
+# Model for the response when processing a prompt
+class PromptResponse(BaseModel):
+    response: str
+
+# Model for the response when creating an issue
+class IssueResponse(BaseModel):
+    message: str
+    issue_url: str
+
+# Model for file uploads (optional, if needed)
+class FileUpload(BaseModel):
+    filename: str
+    content_type: str
+
+
+
 8. Run the Microservice
 Build and run the Docker container:
 
