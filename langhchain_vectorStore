@@ -1,0 +1,44 @@
+Option 5: Use LangChain with Azure OpenAI Embeddings and FAISS
+If you want to avoid ChromaDB entirely, you can use LangChain with Azure OpenAI Embeddings and FAISS as the vector store.
+
+Install the required dependencies:
+
+bash
+Copy
+pip install langchain langchain-openai faiss-cpu
+Update app/utils/rag.py:
+
+python
+Copy
+import os
+from dotenv import load_dotenv
+from langchain_community.vectorstores import FAISS
+from langchain_openai import AzureOpenAIEmbeddings
+from langchain_core.documents import Document
+
+load_dotenv()
+
+# Initialize Azure OpenAI Embeddings
+embeddings = AzureOpenAIEmbeddings(
+    azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+    api_version="2023-05-15"  # Use the latest API version
+)
+
+# Initialize FAISS vector store
+vector_store = FAISS.from_documents([], embeddings)  # Start with an empty index
+
+def add_documents(new_documents: list):
+    """Add documents to the FAISS vector store."""
+    docs = [Document(page_content=doc) for doc in new_documents]
+    vector_store.add_documents(docs)
+
+def search_documents(query: str, top_k: int = 3):
+    """Search documents using FAISS and Azure OpenAI embeddings."""
+    results = vector_store.similarity_search(query, k=top_k)
+    return [doc.page_content for doc in results]
+Final Notes
+If you’re on Windows, installing Microsoft Visual C++ Build Tools is the most reliable solution.
+
+If you want to avoid local compilation, consider using FAISS, Pinecone, or Docker.
