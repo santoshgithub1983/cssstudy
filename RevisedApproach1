@@ -603,3 +603,106 @@ def process_prompt_with_rag(prompt: str):
     response = qa_chain.run(prompt)
     return response
 
+
+
+
+==================== UPDATE 4 
+
+from langchain.document_loaders import DirectoryLoader
+from langchain.vectorstores import FAISS
+from langchain.chains import RetrievalQA
+from langchain.chat_models import AzureChatOpenAI
+from langchain.embeddings.base import Embeddings
+import openai
+import os
+import numpy as np
+
+# Set Azure OpenAI credentials
+azure_openai_api_key = os.getenv("AZURE_OPENAI_API_KEY")
+azure_openai_api_base = os.getenv("AZURE_OPENAI_API_BASE")  # Azure endpoint
+azure_deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4")  # Deployment name
+
+# Custom Embeddings class for Azure OpenAI
+class AzureOpenAIEmbeddings(Embeddings):
+    def __init__(self, api_key, api_base, deployment_name):
+        self.api_key = api_key
+        self.api_base = api_base
+        self.deployment_name = deployment_name
+
+    def embed_documents(self, texts):
+        embeddings = []
+        for text in texts:
+            response = openai.Embedding.create(
+                engine=self.deployment_name,
+                input=text,
+                api_key=self.api_key,
+                api_base=self.api_base
+            )
+            embeddings.append(response['data'][0]['embedding'])
+        return embeddings
+
+    def embed_query(self, text):
+        response = openai.Embedding.create(
+            engine=self.deployment_name,
+            input=text,
+            api_key=self.api_key,
+            api_base=self.api_base
+        )
+        return response['data'][0]['embedding']
+
+# Load documents
+def load_documents():
+    loader = DirectoryLoader("documents", glob="**/*.pdf")
+    documents = loader.load()
+    return documents
+
+# Initialize RAG
+def initialize_rag():
+    documents = load_documents()
+
+    # If no documents are found, return None
+    if not documents:
+        return None
+
+    # Use custom Azure OpenAI embeddings
+    embeddings = AzureOpenAIEmbeddings(
+        api_key=azure_openai_api_key,
+        api_base=azure_openai_api_base,
+        deployment_name=azure_deployment_name
+    )
+
+    vectorstore = FAISS.from_documents(documents, embeddings)
+
+    # Use AzureChatOpenAI for the LLM
+    llm = AzureChatOpenAI(
+        openai_api_key=azure_openai_api_key,
+        openai_api_base=azure_openai_api_base,
+        deployment_name=azure_deployment_name,
+        openai_api_version="2023-05-15"  # Specify the API version
+    )
+
+    qa_chain = RetrievalQA.from_chain_type(
+        llm=llm,
+        chain_type="stuff",
+        retriever=vectorstore.as_retriever()
+    )
+    return qa_chain
+
+# Process prompt with RAG
+def process_prompt_with_rag(prompt: str):
+    qa_chain = initialize_rag()
+
+    # If no documents are found, use the LLM directly
+    if qa_chain is None:
+        llm = AzureChatOpenAI(
+            openai_api_key=azure_openai_api_key,
+            openai_api_base=azure_openai_api_base,
+            deployment_name=azure_deployment_name,
+            openai_api_version="2023-05-15"  # Specify the API version
+        )
+        response = llm(prompt)
+        return response
+
+    # Use the RAG pipeline if documents are available
+    response = qa_chain.run(prompt)
+    return response
