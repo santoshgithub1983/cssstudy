@@ -1,0 +1,171 @@
+You're welcome! If you're facing issues with ChromaDB, there are several alternative vector databases you can use for RAG (Retrieval-Augmented Generation). Below, I'll guide you on how to replace ChromaDB with FAISS (Facebook AI Similarity Search), which is lightweight and easy to set up.
+
+Step 1: Replace ChromaDB with FAISS
+Install FAISS:
+
+bash
+Copy
+pip install faiss-cpu
+Update app/utils/rag.py to use FAISS:
+
+python
+Copy
+import faiss
+import numpy as np
+from sentence_transformers import SentenceTransformer
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+# Initialize FAISS index and SentenceTransformer model
+model = SentenceTransformer('all-MiniLM-L6-v2')  # Lightweight embedding model
+dimension = 384  # Dimension of the embeddings
+index = faiss.IndexFlatL2(dimension)  # L2 distance index
+
+# Store documents and their embeddings
+documents = []
+document_embeddings = []
+
+def add_documents(new_documents: list):
+    """Add documents to the FAISS index."""
+    global documents, document_embeddings
+    documents.extend(new_documents)
+    embeddings = model.encode(new_documents)
+    if document_embeddings:
+        document_embeddings = np.vstack((document_embeddings, embeddings))
+    else:
+        document_embeddings = embeddings
+    index.add(np.array(embeddings))
+
+def search_documents(query: str, top_k: int = 3):
+    """Search documents using FAISS."""
+    query_embedding = model.encode([query])
+    distances, indices = index.search(query_embedding, top_k)
+    return [documents[i] for i in indices[0]]
+Step 2: Update the Code to Use FAISS
+Replace the add_documents call in app/main.py:
+
+python
+Copy
+from app.utils.rag import add_documents
+
+# Add sample documents to the FAISS index
+add_documents([
+    "This is a sample document about FastAPI.",
+    "GitLab API documentation can be found at https://docs.gitlab.com.",
+    "OpenAI provides powerful language models for natural language processing."
+])
+No changes are needed in the /chat endpoint or other files since the search_documents function signature remains the same.
+
+Step 3: Test the Updated Microservice
+Start the service:
+
+bash
+Copy
+uvicorn app.main:app --reload
+Test the /chat endpoint:
+
+bash
+Copy
+curl -X POST "http://127.0.0.1:8000/chat" -H "Content-Type: application/json" -d '{"prompt": "Tell me about FastAPI"}'
+Verify that the RAG-based search works with FAISS.
+
+Alternative Vector Databases
+If FAISS doesn't meet your needs, here are other alternatives:
+
+1. Pinecone
+A managed vector database with a free tier.
+
+Install the SDK:
+
+bash
+Copy
+pip install pinecone-client
+Update app/utils/rag.py to use Pinecone:
+
+python
+Copy
+import pinecone
+from sentence_transformers import SentenceTransformer
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+# Initialize Pinecone
+pinecone.init(api_key=os.getenv("PINECONE_API_KEY"), environment="us-west1-gcp")
+index = pinecone.Index("rag-index")
+
+# Initialize SentenceTransformer model
+model = SentenceTransformer('all-MiniLM-L6-v2')
+
+def add_documents(new_documents: list):
+    """Add documents to the Pinecone index."""
+    embeddings = model.encode(new_documents)
+    vectors = [(str(i), embedding) for i, embedding in enumerate(embeddings)]
+    index.upsert(vectors=vectors, namespace="documents")
+
+def search_documents(query: str, top_k: int = 3):
+    """Search documents using Pinecone."""
+    query_embedding = model.encode([query])
+    results = index.query(query_embedding, top_k=top_k, namespace="documents")
+    return [documents[int(match.id)] for match in results.matches]
+2. Weaviate
+An open-source vector database with a managed cloud option.
+
+Install the SDK:
+
+bash
+Copy
+pip install weaviate-client
+Update app/utils/rag.py to use Weaviate:
+
+python
+Copy
+import weaviate
+from sentence_transformers import SentenceTransformer
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+# Initialize Weaviate client
+client = weaviate.Client(url=os.getenv("WEAVIATE_URL"))
+
+# Initialize SentenceTransformer model
+model = SentenceTransformer('all-MiniLM-L6-v2')
+
+def add_documents(new_documents: list):
+    """Add documents to the Weaviate index."""
+    for doc in new_documents:
+        embedding = model.encode(doc)
+        client.data_object.create(
+            data_object={"content": doc},
+            class_name="Document",
+            vector=embedding
+        )
+
+def search_documents(query: str, top_k: int = 3):
+    """Search documents using Weaviate."""
+    query_embedding = model.encode(query)
+    results = client.query.get("Document", ["content"]).with_near_vector({
+        "vector": query_embedding,
+        "certainty": 0.7
+    }).with_limit(top_k).do()
+    return [result["content"] for result in results["data"]["Get"]["Document"]]
+Step 4: Update .env for Alternative Databases
+For Pinecone:
+
+Copy
+PINECONE_API_KEY=your_pinecone_key
+For Weaviate:
+
+Copy
+WEAVIATE_URL=your_weaviate_url
+Final Notes
+FAISS is lightweight and great for small-scale applications.
+
+Pinecone and Weaviate are better for production-grade applications with scalability needs.
+
+If you need further assistance with any of these alternatives, feel free to as
