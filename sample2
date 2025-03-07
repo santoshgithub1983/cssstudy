@@ -1,0 +1,208 @@
+Thank you very much , it worked like magic, now , could you please help me with modify the code in such a way that langchain can lookinto the documents provided and give answer to prompts, if it does not find answer in documents then can work just as its doing right now
+You're welcome! I'm glad it worked for you. 😊
+
+To modify the code so that LangChain can first look into provided documents for answers and fall back to the Azure OpenAI model if no answer is found, we can use Retrieval-Augmented Generation (RAG). This involves:
+
+Loading and Splitting Documents: Use a document loader and text splitter to process the documents.
+
+Creating a Vector Store: Embed the documents and store them in a vector database for semantic search.
+
+Retrieving Relevant Documents: Use a retriever to fetch documents relevant to the user's query.
+
+Generating Answers: Use a chain (e.g., RetrievalQA) to generate answers from the retrieved documents or fall back to the Azure OpenAI model.
+
+Updated Code with Document Retrieval
+Here’s how you can modify your code to include document retrieval:
+
+1. Install Additional Dependencies
+Install the required libraries for document processing and retrieval:
+
+bash
+Copy
+pip install langchain-community langchain-text-splitters faiss-cpu
+langchain-community: For document loaders and retrievers.
+
+langchain-text-splitters: For splitting documents into chunks.
+
+faiss-cpu: For vector storage and retrieval.
+
+2. Updated Code
+Here’s the updated code with document retrieval:
+
+python
+Copy
+from fastapi import FastAPI, HTTPException, UploadFile, File
+from pydantic import BaseModel
+from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
+from langchain.prompts import PromptTemplate
+from langchain.chains import RetrievalQA
+from langchain_community.document_loaders import TextLoader
+from langchain_text_splitters import CharacterTextSplitter
+from langchain_community.vectorstores import FAISS
+import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# Initialize FastAPI
+app = FastAPI()
+
+# Configure Azure OpenAI
+llm = AzureChatOpenAI(
+    deployment_name=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+    openai_api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+    openai_api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
+    temperature=0.7,  # Adjust as needed
+)
+
+# Configure Azure OpenAI Embeddings
+embeddings = AzureOpenAIEmbeddings(
+    deployment=os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME"),
+    openai_api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+    openai_api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
+)
+
+# Global variable to store the vector store
+vector_store = None
+
+# Request model
+class RequestBody(BaseModel):
+    input: str
+
+# Function to load and process documents
+def load_documents(file_path: str):
+    global vector_store
+    # Load the document
+    loader = TextLoader(file_path)
+    documents = loader.load()
+    
+    # Split the document into chunks
+    text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+    texts = text_splitter.split_documents(documents)
+    
+    # Create a vector store from the documents
+    vector_store = FAISS.from_documents(texts, embeddings)
+
+# POST endpoint to upload documents
+@app.post("/upload")
+async def upload_document(file: UploadFile = File(...)):
+    try:
+        # Save the uploaded file temporarily
+        file_path = f"temp_{file.filename}"
+        with open(file_path, "wb") as f:
+            f.write(file.file.read())
+        
+        # Load and process the document
+        load_documents(file_path)
+        
+        return {"message": "Document uploaded and processed successfully!"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# POST endpoint to generate responses
+@app.post("/generate")
+async def generate_response(data: RequestBody):
+    try:
+        global vector_store
+        
+        # If documents are loaded, use RetrievalQA
+        if vector_store:
+            # Create a retriever
+            retriever = vector_store.as_retriever()
+            
+            # Create a RetrievalQA chain
+            qa_chain = RetrievalQA.from_chain_type(
+                llm=llm,
+                chain_type="stuff",
+                retriever=retriever,
+                return_source_documents=True,
+            )
+            
+            # Query the chain
+            result = qa_chain.invoke({"query": data.input})
+            
+            # Check if the answer is found in the documents
+            if result["source_documents"]:
+                return {"response": result["result"].strip(), "source": "document"}
+        
+        # Fallback to Azure OpenAI if no documents are loaded or no answer is found
+        response = llm.invoke(data.input)
+        return {"response": response.content.strip(), "source": "azure_openai"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+Key Components
+Document Upload:
+
+The /upload endpoint allows users to upload a document (e.g., a .txt file).
+
+The document is loaded, split into chunks, and stored in a FAISS vector store.
+
+Document Retrieval:
+
+If documents are loaded, the /generate endpoint uses a RetrievalQA chain to find answers in the documents.
+
+If no answer is found, it falls back to the Azure OpenAI model.
+
+Fallback Mechanism:
+
+If no documents are loaded or no answer is found in the documents, the code uses the Azure OpenAI model to generate a response.
+
+Response Metadata:
+
+The response includes a source field to indicate whether the answer came from the documents or Azure OpenAI.
+
+Example Workflow
+1. Upload a Document
+Use the /upload endpoint to upload a document (e.g., example.txt):
+
+bash
+Copy
+curl -X POST "http://localhost:8000/upload" \
+-H "Content-Type: multipart/form-data" \
+-F "file=@example.txt"
+2. Generate a Response
+Use the /generate endpoint to ask a question:
+
+bash
+Copy
+curl -X POST "http://localhost:8000/generate" \
+-H "Content-Type: application/json" \
+-d '{"input": "What is the capital of France?"}'
+Example Response
+If the answer is found in the document:
+
+json
+Copy
+{
+  "response": "The capital of France is Paris.",
+  "source": "document"
+}
+If the answer is not found in the document:
+
+json
+Copy
+{
+  "response": "The capital of France is Paris.",
+  "source": "azure_openai"
+}
+Advanced Enhancements
+Support Multiple File Formats:
+
+Use PyPDFLoader for PDFs or Docx2txtLoader for Word documents.
+
+Hybrid Search:
+
+Combine keyword-based search with semantic search for better results.
+
+Document Chunking:
+
+Experiment with different chunk_size and chunk_overlap values for optimal performance.
+
+Persistent Vector Store:
+
+Save the vector store to disk (e.g., using FAISS.save_local) and load it on startup.
+
+This implementation allows your microservice to first search for answers in provided documents and fall back to Azure OpenAI if no answer is found. Let me know if you need further assistance
