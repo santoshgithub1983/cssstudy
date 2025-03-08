@@ -236,3 +236,200 @@ AI_PROVIDER=other
 OTHER_AI_API_KEY=<other-api-key>
 OTHER_AI_ENDPOINT=<other-endpoint-url>
 Restart the FastAPI app.
+
+
+
+TESTS
+
+
+
+tests/
+│   ├── __init__.py
+│   ├── unit/
+│   │   ├── __init__.py
+│   │   ├── test_services.py
+│   │   └── test_utils.py
+│   ├── integration/
+│   │   ├── __init__.py
+│   │   └── test_routes.py
+│   └── e2e/
+│       ├── __init__.py
+│       └── test_api.py
+
+
+
+
+2. Install Testing Dependencies
+
+Add testing libraries to your requirements.txt:
+
+plaintext
+Copy
+pytest
+httpx
+pytest-asyncio
+pytest-cov
+pytest: A popular testing framework.
+httpx: An HTTP client for testing API endpoints.
+pytest-asyncio: For testing asynchronous code.
+pytest-cov: For generating test coverage reports.
+Install the dependencies:
+
+bash
+Copy
+pip install -r requirements.txt
+3. Write Unit Tests
+
+Unit tests focus on individual components (e.g., services, utilities).
+
+Example: Test OpenAIService
+
+python
+Copy
+# tests/unit/test_services.py
+import pytest
+from app.services.openai_service import OpenAIService
+from app.services.ai_service import AIService
+
+@pytest.fixture
+def openai_service():
+    return OpenAIService(
+        api_key="dummy-key",
+        endpoint="https://dummy-endpoint.com",
+        deployment_name="dummy-deployment",
+        api_version="2023-05-15",
+    )
+
+def test_openai_service_generate_response(openai_service: AIService):
+    # Mock the OpenAI API call (you can use a library like `unittest.mock`)
+    input_text = "Hello, world!"
+    response = openai_service.generate_response(input_text)
+    assert isinstance(response, str)
+4. Write Integration Tests
+
+Integration tests verify the interaction between components (e.g., routes and services).
+
+Example: Test /generate Endpoint
+
+python
+Copy
+# tests/integration/test_routes.py
+import pytest
+from fastapi.testclient import TestClient
+from app.main import app
+
+@pytest.fixture
+def client():
+    return TestClient(app)
+
+def test_generate_endpoint(client):
+    response = client.post(
+        "/generate",
+        json={"input": "Explain quantum computing in simple terms"},
+    )
+    assert response.status_code == 200
+    assert "response" in response.json()
+5. Write End-to-End (E2E) Tests
+
+E2E tests simulate real-world usage of the API.
+
+Example: Test Full API Workflow
+
+python
+Copy
+# tests/e2e/test_api.py
+import pytest
+from fastapi.testclient import TestClient
+from app.main import app
+
+@pytest.fixture
+def client():
+    return TestClient(app)
+
+def test_full_workflow(client):
+    # Upload a document
+    with open("tests/test1.pdf", "rb") as file:
+        response = client.post(
+            "/upload",
+            files={"file": file},
+        )
+    assert response.status_code == 200
+    assert response.json() == {"message": "File uploaded successfully!"}
+
+    # Generate a response
+    response = client.post(
+        "/generate",
+        json={"input": "Explain quantum computing in simple terms"},
+    )
+    assert response.status_code == 200
+    assert "response" in response.json()
+6. Run Tests
+
+Use pytest to run your tests:
+
+bash
+Copy
+pytest tests/
+Generate a Coverage Report
+
+bash
+Copy
+pytest --cov=app tests/
+7. Add Tests to CI/CD Pipeline
+
+Integrate testing into your GitLab CI/CD pipeline.
+
+Example .gitlab-ci.yml
+
+yaml
+Copy
+stages:
+  - test
+  - build
+  - deploy
+
+test:
+  stage: test
+  script:
+    - pip install -r requirements.txt
+    - pytest --cov=app tests/
+
+build:
+  stage: build
+  script:
+    - docker build -t my-fastapi-app .
+
+deploy:
+  stage: deploy
+  script:
+    - docker run -p 8080:8080 my-fastapi-app
+8. Mock External Dependencies
+
+For unit tests, mock external dependencies (e.g., OpenAI API calls) to avoid making real API requests.
+
+Example: Mock OpenAI API Call
+
+python
+Copy
+from unittest.mock import patch
+
+def test_openai_service_generate_response(openai_service: AIService):
+    with patch("langchain_openai.AzureChatOpenAI.invoke") as mock_invoke:
+        mock_invoke.return_value = "Mocked response"
+        input_text = "Hello, world!"
+        response = openai_service.generate_response(input_text)
+        assert response == "Mocked response"
+9. Test Coverage
+
+Use pytest-cov to measure test coverage and ensure all critical parts of your code are tested.
+
+bash
+Copy
+pytest --cov=app tests/
+10. Summary
+
+Add a tests module with unit, integration, and e2e submodules.
+Use pytest for writing and running tests.
+Mock external dependencies for unit tests.
+Integrate tests into your CI/CD pipeline.
+Measure test coverage to ensure thorough testing.
