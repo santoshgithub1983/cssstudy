@@ -1,0 +1,238 @@
+Absolutely! Modularizing your code is a best practice that makes it easier to maintain, extend, and modify. By separating concerns and using dependency injection, you can easily swap out components (e.g., OpenAI for another AI service) without rewriting the entire codebase.
+
+Here’s how you can modularize your FastAPI microservice:
+
+1. Key Principles of Modularization
+
+Separation of Concerns:
+Break the code into smaller, reusable modules (e.g., services, models, routes).
+Dependency Injection:
+Use interfaces or abstract classes to define contracts for services.
+Inject dependencies at runtime (e.g., OpenAI service or another AI service).
+Configuration Management:
+Use a configuration file or environment variables to manage service-specific settings.
+2. Modularized Code Structure
+
+Here’s a suggested structure for your project:
+
+Copy
+.
+├── app/
+│   ├── __init__.py
+│   ├── main.py              # FastAPI app entry point
+│   ├── routes/              # API routes
+│   │   ├── __init__.py
+│   │   ├── upload.py        # Upload endpoint
+│   │   └── generate.py      # Generate endpoint
+│   ├── services/            # Service layer
+│   │   ├── __init__.py
+│   │   ├── ai_service.py    # AI service interface
+│   │   ├── openai_service.py # OpenAI implementation
+│   │   └── other_ai_service.py # Another AI service implementation
+│   ├── models/              # Data models
+│   │   ├── __init__.py
+│   │   └── request.py       # Request models
+│   └── utils/               # Utility functions
+│       ├── __init__.py
+│       └── file_utils.py    # File handling utilities
+├── requirements.txt         # Dependencies
+└── Dockerfile               # Docker configuration
+3. Code Implementation
+
+Step 1: Define the AI Service Interface
+
+Create an abstract base class (ai_service.py) to define the contract for AI services.
+
+python
+Copy
+# app/services/ai_service.py
+from abc import ABC, abstractmethod
+
+class AIService(ABC):
+    @abstractmethod
+    def generate_response(self, input: str) -> str:
+        pass
+Step 2: Implement the OpenAI Service
+
+Create a concrete implementation for OpenAI (openai_service.py).
+
+python
+Copy
+# app/services/openai_service.py
+from langchain_openai import AzureChatOpenAI
+from app.services.ai_service import AIService
+
+class OpenAIService(AIService):
+    def __init__(self, api_key: str, endpoint: str, deployment_name: str, api_version: str):
+        self.llm = AzureChatOpenAI(
+            deployment_name=deployment_name,
+            openai_api_key=api_key,
+            azure_endpoint=endpoint,
+            openai_api_version=api_version,
+        )
+
+    def generate_response(self, input: str) -> str:
+        response = self.llm.invoke(input)
+        return response.content
+Step 3: Implement Another AI Service
+
+Create a concrete implementation for another AI service (other_ai_service.py).
+
+python
+Copy
+# app/services/other_ai_service.py
+from app.services.ai_service import AIService
+
+class OtherAIService(AIService):
+    def __init__(self, api_key: str, endpoint: str):
+        self.api_key = api_key
+        self.endpoint = endpoint
+
+    def generate_response(self, input: str) -> str:
+        # Call the other AI service API
+        return "Response from another AI service"
+Step 4: Dependency Injection
+
+Inject the AI service into your FastAPI app. Use environment variables to decide which service to use.
+
+python
+Copy
+# app/main.py
+from fastapi import FastAPI
+from app.services.openai_service import OpenAIService
+from app.services.other_ai_service import OtherAIService
+from app.routes.upload import router as upload_router
+from app.routes.generate import router as generate_router
+import os
+
+app = FastAPI()
+
+# Dependency injection for AI service
+def get_ai_service():
+    ai_provider = os.getenv("AI_PROVIDER", "openai")  # Default to OpenAI
+    if ai_provider == "openai":
+        return OpenAIService(
+            api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+            endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+            deployment_name=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+            api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
+        )
+    elif ai_provider == "other":
+        return OtherAIService(
+            api_key=os.getenv("OTHER_AI_API_KEY"),
+            endpoint=os.getenv("OTHER_AI_ENDPOINT"),
+        )
+    else:
+        raise ValueError(f"Unsupported AI provider: {ai_provider}")
+
+# Include routers
+app.include_router(upload_router)
+app.include_router(generate_router)
+
+# Inject AI service into the app state
+@app.on_event("startup")
+async def startup_event():
+    app.state.ai_service = get_ai_service()
+Step 5: Define Routes
+
+Separate routes into their own modules.
+
+Upload Route
+
+python
+Copy
+# app/routes/upload.py
+from fastapi import APIRouter, File, UploadFile, HTTPException
+from app.utils.file_utils import save_uploaded_file
+from app.services.ai_service import AIService
+
+router = APIRouter()
+
+@router.post("/upload")
+async def upload_document(file: UploadFile = File(...)):
+    try:
+        file_path = save_uploaded_file(file)
+        # Process the file (e.g., load into vector store)
+        return {"message": "File uploaded successfully!"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+Generate Route
+
+python
+Copy
+# app/routes/generate.py
+from fastapi import APIRouter, Depends, HTTPException
+from app.models.request import RequestBody
+from app.services.ai_service import AIService
+
+router = APIRouter()
+
+@router.post("/generate")
+async def generate_response(data: RequestBody, ai_service: AIService = Depends(get_ai_service)):
+    try:
+        response = ai_service.generate_response(data.input)
+        return {"response": response}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+Step 6: Utility Functions
+
+Move file handling logic to a utility module.
+
+python
+Copy
+# app/utils/file_utils.py
+import os
+
+def save_uploaded_file(file: UploadFile) -> str:
+    file_path = f"temp_{file.filename}"
+    with open(file_path, "wb") as f:
+        f.write(file.file.read())
+    return file_path
+Step 7: Request Models
+
+Define request models in a separate module.
+
+python
+Copy
+# app/models/request.py
+from pydantic import BaseModel
+
+class RequestBody(BaseModel):
+    input: str
+4. Configuration
+
+Use environment variables to configure the AI service provider and credentials.
+
+Example .env File
+
+env
+Copy
+# AI Provider (openai or other)
+AI_PROVIDER=openai
+
+# OpenAI Configuration
+AZURE_OPENAI_API_KEY=<your-api-key>
+AZURE_OPENAI_ENDPOINT=<your-endpoint-url>
+AZURE_OPENAI_DEPLOYMENT_NAME=<deployment-name>
+AZURE_OPENAI_API_VERSION=2023-05-15
+
+# Other AI Configuration
+OTHER_AI_API_KEY=<other-api-key>
+OTHER_AI_ENDPOINT=<other-endpoint-url>
+5. Benefits of Modularization
+
+Easy to Swap Services: Change the AI_PROVIDER environment variable to switch between OpenAI and another AI service.
+Reusable Components: Each module (e.g., services, routes, utils) can be reused across projects.
+Testability: Easier to write unit tests for individual components.
+Scalability: Add new features or services without modifying existing code.
+6. Example: Switching to Another AI Service
+
+To switch to another AI service:
+
+Update the .env file:
+env
+Copy
+AI_PROVIDER=other
+OTHER_AI_API_KEY=<other-api-key>
+OTHER_AI_ENDPOINT=<other-endpoint-url>
+Restart the FastAPI app.
