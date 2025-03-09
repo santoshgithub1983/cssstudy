@@ -1,0 +1,255 @@
+Great idea! Adding a module to interact with the GitLab API to create issues based on user input is a powerful feature. Here's how you can implement this step by step:
+
+1. High-Level Workflow
+User Input:
+
+The user provides details like issue description, employee ID, email, name, etc.
+
+Optionally, the user can upload files (e.g., screenshots, network logs).
+
+GitLab API Integration:
+
+Use the GitLab API to create an issue with the provided details.
+
+Attach any uploaded files to the issue.
+
+Response:
+
+Return the issue ID and GitLab issue link to the user.
+
+2. Prerequisites
+GitLab API Token:
+
+Generate a Personal Access Token in GitLab with the api scope.
+
+Store the token securely (e.g., in GitLab CI/CD variables or a secrets manager).
+
+GitLab Project ID:
+
+Identify the project ID where issues will be created.
+
+3. Update the FastAPI Application
+Add a new endpoint /create-issue to handle issue creation.
+
+Updated Project Structure
+Copy
+.
+├── app/
+│   ├── __init__.py
+│   ├── main.py
+│   ├── routes/
+│   │   ├── __init__.py
+│   │   ├── upload.py
+│   │   ├── generate.py
+│   │   └── gitlab_issues.py  # New module for GitLab issue creation
+│   ├── services/
+│   │   ├── __init__.py
+│   │   ├── ai_service.py
+│   │   ├── openai_service.py
+│   │   ├── other_ai_service.py
+│   │   └── gitlab_service.py  # New module for GitLab API interaction
+│   ├── models/
+│   │   ├── __init__.py
+│   │   ├── request.py
+│   │   └── gitlab_models.py   # New module for GitLab issue models
+│   ├── utils/
+│   │   ├── __init__.py
+│   │   └── file_utils.py
+│   └── dependencies.py
+├── tests/
+├── requirements.txt
+├── Dockerfile
+└── .gitignore
+4. Implement the GitLab Service
+Create a new service to interact with the GitLab API.
+
+gitlab_service.py
+python
+Copy
+import requests
+import os
+from typing import Optional, List
+
+class GitLabService:
+    def __init__(self):
+        self.gitlab_url = os.getenv("GITLAB_URL", "https://gitlab.com")
+        self.gitlab_token = os.getenv("GITLAB_TOKEN")
+        self.project_id = os.getenv("GITLAB_PROJECT_ID")
+
+    def create_issue(
+        self,
+        title: str,
+        description: str,
+        assignee_ids: Optional[List[int]] = None,
+        labels: Optional[List[str]] = None,
+        files: Optional[List[str]] = None,
+    ) -> dict:
+        """
+        Create a GitLab issue with optional file attachments.
+        """
+        issue_url = f"{self.gitlab_url}/api/v4/projects/{self.project_id}/issues"
+        headers = {
+            "PRIVATE-TOKEN": self.gitlab_token,
+        }
+        data = {
+            "title": title,
+            "description": description,
+            "assignee_ids": assignee_ids or [],
+            "labels": labels or [],
+        }
+
+        # Create the issue
+        response = requests.post(issue_url, headers=headers, json=data)
+        response.raise_for_status()
+        issue = response.json()
+
+        # Attach files if provided
+        if files:
+            for file_path in files:
+                self.attach_file_to_issue(issue["id"], file_path)
+
+        return issue
+
+    def attach_file_to_issue(self, issue_id: int, file_path: str) -> None:
+        """
+        Attach a file to a GitLab issue.
+        """
+        upload_url = f"{self.gitlab_url}/api/v4/projects/{self.project_id}/uploads"
+        headers = {
+            "PRIVATE-TOKEN": self.gitlab_token,
+        }
+        with open(file_path, "rb") as file:
+            files = {"file": file}
+            response = requests.post(upload_url, headers=headers, files=files)
+            response.raise_for_status()
+            upload = response.json()
+
+            # Add the uploaded file to the issue description
+            issue_url = f"{self.gitlab_url}/api/v4/projects/{self.project_id}/issues/{issue_id}"
+            data = {
+                "description": f"{upload['markdown']}\n\n",  # Append the file link
+            }
+            response = requests.put(issue_url, headers=headers, json=data)
+            response.raise_for_status()
+5. Define Request Models
+Create models for the /create-issue endpoint.
+
+gitlab_models.py
+python
+Copy
+from pydantic import BaseModel
+from typing import Optional, List
+
+class CreateIssueRequest(BaseModel):
+    title: str
+    description: str
+    employee_id: str
+    email: str
+    name: str
+    files: Optional[List[str]] = None
+6. Add the /create-issue Endpoint
+Create a new route to handle issue creation.
+
+gitlab_issues.py
+python
+Copy
+from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
+from app.models.gitlab_models import CreateIssueRequest
+from app.services.gitlab_service import GitLabService
+from app.utils.file_utils import save_uploaded_file
+
+router = APIRouter()
+
+@router.post("/create-issue")
+async def create_issue(
+    request: CreateIssueRequest,
+    files: List[UploadFile] = File(None),
+    gitlab_service: GitLabService = Depends(GitLabService),
+):
+    try:
+        # Save uploaded files
+        file_paths = []
+        if files:
+            for file in files:
+                file_path = save_uploaded_file(file)
+                file_paths.append(file_path)
+
+        # Create the issue
+        issue = gitlab_service.create_issue(
+            title=request.title,
+            description=f"""
+                **Description**: {request.description}
+                **Employee ID**: {request.employee_id}
+                **Email**: {request.email}
+                **Name**: {request.name}
+            """,
+            files=file_paths,
+        )
+
+        # Return the issue details
+        return {
+            "issue_id": issue["id"],
+            "issue_url": issue["web_url"],
+            "message": "Issue created successfully!",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+7. Update main.py
+Include the new router in your FastAPI app.
+
+main.py
+python
+Copy
+from fastapi import FastAPI
+from app.routes.upload import router as upload_router
+from app.routes.generate import router as generate_router
+from app.routes.gitlab_issues import router as gitlab_issues_router
+
+app = FastAPI()
+
+# Include routers
+app.include_router(upload_router)
+app.include_router(generate_router)
+app.include_router(gitlab_issues_router)
+8. Environment Variables
+Add the following variables to your .env file or GitLab CI/CD variables:
+
+env
+Copy
+GITLAB_URL=https://gitlab.com
+GITLAB_TOKEN=<your-gitlab-token>
+GITLAB_PROJECT_ID=<your-project-id>
+9. Test the Endpoint
+Start the FastAPI app and test the /create-issue endpoint:
+
+bash
+Copy
+uvicorn app.main:app --reload
+Example Request
+bash
+Copy
+curl -X POST "http://localhost:8000/create-issue" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Network Issue",
+    "description": "Unable to connect to the VPN.",
+    "employee_id": "12345",
+    "email": "user@example.com",
+    "name": "John Doe"
+  }'
+Example Response
+json
+Copy
+{
+  "issue_id": 123,
+  "issue_url": "https://gitlab.com/your-project/issues/123",
+  "message": "Issue created successfully!"
+}
+10. Summary
+Added a new /create-issue endpoint to create GitLab issues.
+
+Integrated with the GitLab API to create issues and attach files.
+
+Used Pydantic models for request validation.
+
+Securely stored GitLab credentials in environment variables.
