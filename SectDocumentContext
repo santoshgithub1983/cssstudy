@@ -1,0 +1,157 @@
+thansk it worked as magic, BUT i found that the document context is not being used for specific wuestion for whcih answer expected to be searched in document context not OPEN AI
+Ah, I see! If the document context is not being used for specific questions, it means the RetrievalQA chain (or similar logic) is not properly integrated into your /generate endpoint. Let’s fix this by ensuring that the system first searches the document context (using the vector store) before falling back to OpenAI.
+
+1. Key Changes Needed
+Check Document Context First:
+
+Use the vector store to search for relevant documents.
+
+If a relevant document is found, return the answer from the document.
+
+If no relevant document is found, fall back to OpenAI.
+
+Integrate RetrievalQA:
+
+Use the RetrievalQA chain to query the vector store.
+
+Improve Prompting:
+
+Ensure the system understands when to use the document context and when to use OpenAI.
+
+2. Updated /generate Endpoint
+Here’s how you can modify the /generate endpoint to prioritize document context:
+
+Updated generate.py
+python
+Copy
+from fastapi import APIRouter, Depends, HTTPException
+from app.models.request import RequestBody
+from app.services.ai_service import AIService
+from app.services.gitlab_service import GitLabService
+from app.models.gitlab_models import CreateIssueRequest
+from langchain.chains import RetrievalQA
+from langchain.prompts import PromptTemplate
+from typing import Optional, List
+
+router = APIRouter()
+
+def contains_keywords(input: str, keywords: list) -> bool:
+    """
+    Check if the input contains any of the specified keywords.
+    """
+    return any(keyword.lower() in input.lower() for keyword in keywords)
+
+@router.post("/generate")
+async def generate_response(
+    data: RequestBody,
+    ai_service: AIService = Depends(get_ai_service),
+    vector_store: Optional[FAISS] = Depends(get_vector_store),
+):
+    try:
+        # Check if the input contains keywords related to issues
+        issue_keywords = ["issue", "incident", "ticket"]
+        if contains_keywords(data.input, issue_keywords):
+            # Ask the user for additional details
+            prompt = "Please provide the following details to create an issue:\n"
+            prompt += "1. Title\n2. Description\n3. Employee ID\n4. Email\n5. Name\n"
+            prompt += "You can also attach files (e.g., screenshots, logs)."
+
+            return {"response": prompt, "requires_issue_details": True}
+
+        # If vector store is available, search for relevant documents
+        if vector_store:
+            # Create a retriever
+            retriever = vector_store.as_retriever()
+
+            # Create a RetrievalQA chain
+            qa_chain = RetrievalQA.from_chain_type(
+                llm=ai_service,
+                chain_type="stuff",
+                retriever=retriever,
+                return_source_documents=True,
+            )
+
+            # Query the chain
+            result = qa_chain.invoke({"query": data.input})
+            if result["source_documents"]:
+                return {"response": result["result"].strip(), "source": "document"}
+
+        # If no relevant document is found, fall back to OpenAI
+        response = ai_service.generate_response(data.input)
+        return {"response": response, "source": "openai"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+3. Add get_vector_store Dependency
+Ensure the vector store is available as a dependency.
+
+dependencies.py
+python
+Copy
+from app.services.vector_store import get_vector_store  # Assuming you have a vector store service
+
+def get_vector_store():
+    return get_vector_store()  # Replace with your actual vector store retrieval logic
+4. Update the Vector Store Logic
+Ensure the vector store is properly initialized and available for querying.
+
+Example Vector Store Initialization
+python
+Copy
+from langchain.vectorstores import FAISS
+from langchain.embeddings import AzureOpenAIEmbeddings
+
+def get_vector_store():
+    embeddings = AzureOpenAIEmbeddings(
+        deployment=os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME"),
+        openai_api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+        openai_api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
+    )
+    # Load or initialize the vector store
+    vector_store = FAISS.load_local("path_to_vector_store", embeddings)
+    return vector_store
+5. Improve Prompting
+Ensure the system understands when to use the document context and when to use OpenAI.
+
+Example Prompt Template
+python
+Copy
+prompt_template = PromptTemplate.from_template(
+    "You are a helpful AI assistant. Answer the following question based on the provided context:\n\n"
+    "Context:\n{context}\n\n"
+    "Question: {question}\n\n"
+    "Answer:"
+)
+6. Testing the Changes
+Start the FastAPI App:
+
+bash
+Copy
+uvicorn app.main:app --reload
+Test with a Document-Specific Question:
+
+bash
+Copy
+curl -X POST "http://localhost:8000/generate" \
+  -H "Content-Type: application/json" \
+  -d '{"input": "What is the capital of France?"}'
+Test with a General Question:
+
+bash
+Copy
+curl -X POST "http://localhost:8000/generate" \
+  -H "Content-Type: application/json" \
+  -d '{"input": "Explain quantum computing in simple terms"}'
+7. Expected Behavior
+If the question can be answered using the document context, the response will include "source": "document".
+
+If no relevant document is found, the response will include "source": "openai".
+
+8. Summary
+Added logic to prioritize document context using the RetrievalQA chain.
+
+Integrated the vector store into the /generate endpoint.
+
+Improved prompting to ensure the system understands when to use the document context.
+
+Added a fallback to OpenAI if no relevant document is found.
