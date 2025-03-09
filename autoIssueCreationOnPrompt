@@ -1,0 +1,175 @@
+o automatically trigger the creation of a GitLab issue when a user's prompt contains specific keywords (e.g., "issue," "incident," "ticket"), you can integrate this logic into your existing /generate endpoint. Here's how you can achieve this:
+
+1. Add Keyword Detection Logic
+Modify the /generate endpoint to detect keywords in the user's input and trigger the issue creation process if necessary.
+
+Updated generate.py
+python
+Copy
+from fastapi import APIRouter, Depends, HTTPException
+from app.models.request import RequestBody
+from app.services.ai_service import AIService
+from app.routes.gitlab_issues import create_issue
+from app.models.gitlab_models import CreateIssueRequest
+from typing import Optional
+
+router = APIRouter()
+
+def contains_keywords(input: str, keywords: list) -> bool:
+    """
+    Check if the input contains any of the specified keywords.
+    """
+    return any(keyword.lower() in input.lower() for keyword in keywords)
+
+@router.post("/generate")
+async def generate_response(
+    data: RequestBody,
+    ai_service: AIService = Depends(get_ai_service),
+):
+    try:
+        # Check if the input contains keywords related to issues
+        issue_keywords = ["issue", "incident", "ticket"]
+        if contains_keywords(data.input, issue_keywords):
+            # Ask the user for additional details
+            prompt = "Please provide the following details to create an issue:\n"
+            prompt += "1. Title\n2. Description\n3. Employee ID\n4. Email\n5. Name\n"
+            prompt += "You can also attach files (e.g., screenshots, logs)."
+
+            return {"response": prompt, "requires_issue_details": True}
+
+        # If no keywords are found, generate a normal response
+        response = ai_service.generate_response(data.input)
+        return {"response": response, "requires_issue_details": False}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+2. Add a New Endpoint for Issue Details
+Create a new endpoint to handle the submission of issue details and file uploads.
+
+gitlab_issues.py
+python
+Copy
+from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
+from app.models.gitlab_models import CreateIssueRequest
+from app.services.gitlab_service import GitLabService
+from app.utils.file_utils import save_uploaded_file
+
+router = APIRouter()
+
+@router.post("/submit-issue-details")
+async def submit_issue_details(
+    request: CreateIssueRequest,
+    files: List[UploadFile] = File(None),
+    gitlab_service: GitLabService = Depends(GitLabService),
+):
+    try:
+        # Save uploaded files
+        file_paths = []
+        if files:
+            for file in files:
+                file_path = save_uploaded_file(file)
+                file_paths.append(file_path)
+
+        # Create the issue
+        issue = gitlab_service.create_issue(
+            title=request.title,
+            description=f"""
+                **Description**: {request.description}
+                **Employee ID**: {request.employee_id}
+                **Email**: {request.email}
+                **Name**: {request.name}
+            """,
+            files=file_paths,
+        )
+
+        # Return the issue details
+        return {
+            "issue_id": issue["id"],
+            "issue_url": issue["web_url"],
+            "message": "Issue created successfully!",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+3. Update main.py
+Include the new router in your FastAPI app.
+
+main.py
+python
+Copy
+from fastapi import FastAPI
+from app.routes.upload import router as upload_router
+from app.routes.generate import router as generate_router
+from app.routes.gitlab_issues import router as gitlab_issues_router
+
+app = FastAPI()
+
+# Include routers
+app.include_router(upload_router)
+app.include_router(generate_router)
+app.include_router(gitlab_issues_router)
+4. Frontend Integration
+If you have a frontend, you can use the requires_issue_details flag to show a form for collecting issue details and file uploads.
+
+Example Frontend Flow
+User sends a prompt: "I have an issue with the VPN."
+
+Backend responds with:
+
+json
+Copy
+{
+  "response": "Please provide the following details to create an issue...",
+  "requires_issue_details": true
+}
+Frontend displays a form for issue details and file uploads.
+
+User submits the form, and the frontend calls the /submit-issue-details endpoint.
+
+5. Example Workflow
+Step 1: User Sends a Prompt
+bash
+Copy
+curl -X POST "http://localhost:8000/generate" \
+  -H "Content-Type: application/json" \
+  -d '{"input": "I have an issue with the VPN."}'
+Step 2: Backend Detects Keywords
+The backend detects the keyword "issue" and responds with:
+
+json
+Copy
+{
+  "response": "Please provide the following details to create an issue...",
+  "requires_issue_details": true
+}
+Step 3: User Submits Issue Details
+bash
+Copy
+curl -X POST "http://localhost:8000/submit-issue-details" \
+  -H "Content-Type: multipart/form-data" \
+  -F "title=VPN Issue" \
+  -F "description=Unable to connect to the VPN." \
+  -F "employee_id=12345" \
+  -F "email=user@example.com" \
+  -F "name=John Doe" \
+  -F "files=@screenshot.png"
+Step 4: Backend Creates the Issue
+The backend creates the issue and responds with:
+
+json
+Copy
+{
+  "issue_id": 123,
+  "issue_url": "https://gitlab.com/your-project/issues/123",
+  "message": "Issue created successfully!"
+}
+6. Summary
+Added keyword detection logic to the /generate endpoint.
+
+Created a new /submit-issue-details endpoint to handle issue creation.
+
+Integrated with the GitLab API to create issues and attach files.
+
+Used a flag (requires_issue_details) to guide the frontend flow.
+
+Let me know if you need further assistance! 🚀
+
+New chat
