@@ -1,0 +1,200 @@
+Based on the modular folder structure we discussed earlier, here's where the save_vector_store and load_vector_store functions should be placed and how to integrate them into your existing code.
+
+Folder Structure
+Copy
+.
+├── app/
+│   ├── __init__.py
+│   ├── main.py
+│   ├── routes/
+│   │   ├── __init__.py
+│   │   ├── upload.py
+│   │   ├── generate.py
+│   │   └── gitlab_issues.py
+│   ├── services/
+│   │   ├── __init__.py
+│   │   ├── ai_service.py
+│   │   ├── openai_service.py
+│   │   ├── other_ai_service.py
+│   │   └── vector_store_service.py  # New file for vector store logic
+│   ├── models/
+│   │   ├── __init__.py
+│   │   ├── request.py
+│   │   └── gitlab_models.py
+│   ├── utils/
+│   │   ├── __init__.py
+│   │   └── file_utils.py
+│   └── dependencies.py
+├── tests/
+├── requirements.txt
+├── Dockerfile
+└── .gitignore
+1. Create a New Service for Vector Store Logic
+Create a new file vector_store_service.py in the app/services/ directory to handle saving and loading the vector store.
+
+app/services/vector_store_service.py
+python
+Copy
+import os
+import json
+from langchain.vectorstores import FAISS
+from langchain.embeddings import AzureOpenAIEmbeddings
+
+def save_vector_store(vector_store, folder_path: str):
+    """
+    Save the FAISS vector store and metadata to the specified folder.
+    """
+    # Ensure the directory exists
+    os.makedirs(folder_path, exist_ok=True)
+
+    # Save the FAISS index
+    vector_store.save_local(folder_path)
+
+    # Save metadata separately (e.g., document IDs, embeddings)
+    metadata = {
+        "documents": vector_store.docstore._dict,
+        "index_to_docstore_id": vector_store.index_to_docstore_id,
+    }
+    with open(os.path.join(folder_path, "metadata.json"), "w") as f:
+        json.dump(metadata, f)
+
+def load_vector_store(folder_path: str, embeddings):
+    """
+    Load the FAISS vector store and metadata from the specified folder.
+    """
+    # Ensure the directory exists
+    if not os.path.exists(folder_path):
+        raise FileNotFoundError(f"Vector store directory not found: {folder_path}")
+
+    # Load the FAISS index
+    vector_store = FAISS.load_local(folder_path, embeddings, allow_dangerous_deserialization=False)
+
+    # Load metadata separately
+    metadata_path = os.path.join(folder_path, "metadata.json")
+    if os.path.exists(metadata_path):
+        with open(metadata_path, "r") as f:
+            metadata = json.load(f)
+
+        # Restore metadata
+        vector_store.docstore._dict = metadata["documents"]
+        vector_store.index_to_docstore_id = metadata["index_to_docstore_id"]
+
+    return vector_store
+2. Update the /upload Endpoint
+Modify the /upload endpoint in app/routes/upload.py to use the new save_vector_store function.
+
+app/routes/upload.py
+python
+Copy
+import os
+from fastapi import APIRouter, UploadFile, File, HTTPException
+from langchain_community.document_loaders import PyPDFLoader, TextLoader, Docx2txtLoader
+from langchain_text_splitters import CharacterTextSplitter
+from langchain.embeddings import AzureOpenAIEmbeddings
+from app.services.vector_store_service import save_vector_store  # Import the new function
+
+router = APIRouter()
+
+# Define directories
+UPLOAD_DIR = "data/uploads"
+VECTOR_STORE_DIR = "data/vector_store"
+
+# Ensure directories exist
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(VECTOR_STORE_DIR, exist_ok=True)
+
+def load_documents(file_path: str):
+    try:
+        # Determine the file type
+        file_extension = os.path.splitext(file_path)[1].lower()
+        
+        # Load the document based on the file type
+        if file_extension == ".pdf":
+            loader = PyPDFLoader(file_path)
+        elif file_extension == ".docx":
+            loader = Docx2txtLoader(file_path)
+        elif file_extension == ".txt":
+            loader = TextLoader(file_path)
+        else:
+            raise ValueError(f"Unsupported file type: {file_extension}")
+        
+        documents = loader.load()
+        
+        # Split the document into chunks
+        text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+        texts = text_splitter.split_documents(documents)
+        
+        # Create embeddings
+        embeddings = AzureOpenAIEmbeddings(
+            deployment=os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME"),
+            openai_api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+            openai_api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
+        )
+        
+        # Create a vector store from the documents
+        vector_store = FAISS.from_documents(texts, embeddings)
+        
+        # Save the vector store and metadata
+        save_vector_store(vector_store, VECTOR_STORE_DIR)
+        
+        print("Documents loaded and processed successfully!")
+    except Exception as e:
+        print(f"Error loading documents: {e}")
+        raise
+
+@router.post("/upload")
+async def upload_document(file: UploadFile = File(...)):
+    try:
+        # Save the uploaded file to the uploads directory
+        file_path = os.path.join(UPLOAD_DIR, f"temp_{file.filename}")
+        with open(file_path, "wb") as f:
+            f.write(file.file.read())
+        
+        # Load and process the document
+        load_documents(file_path)
+        
+        # Clean up: Delete the uploaded file after processing
+        os.remove(file_path)
+        
+        return {"message": "Document uploaded and processed successfully!"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+3. Update the get_vector_store Function
+Modify the get_vector_store function in app/dependencies.py to use the new load_vector_store function.
+
+app/dependencies.py
+python
+Copy
+import os
+from langchain.embeddings import AzureOpenAIEmbeddings
+from app.services.vector_store_service import load_vector_store  # Import the new function
+
+def get_vector_store():
+    # Load the vector store path from environment variables
+    vector_store_path = os.getenv("VECTOR_STORE_PATH", "data/vector_store")
+
+    # Create embeddings
+    embeddings = AzureOpenAIEmbeddings(
+        deployment=os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME"),
+        openai_api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+        openai_api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
+    )
+
+    # Load the vector store
+    try:
+        vector_store = load_vector_store(vector_store_path, embeddings)
+        print("Vector store loaded successfully.")
+        return vector_store
+    except Exception as e:
+        print(f"Error loading vector store: {e}")
+        return None
+4. Summary of Changes
+Created a new vector_store_service.py file in app/services/ to handle saving and loading the vector store.
+
+Updated the /upload endpoint to use save_vector_store.
+
+Updated the get_vector_store function to use load_vector_store.
+
+This approach ensures that metadata is handled safely (using JSON) and avoids the need for allow_dangerous_deserialization=True.
