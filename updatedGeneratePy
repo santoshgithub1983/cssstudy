@@ -1,0 +1,69 @@
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from typing import Optional
+from langchain.vectorstores import FAISS
+from langchain.chains import RetrievalQA
+from langchain.prompts import PromptTemplate
+from app.services.ai_service import AIService
+from app.dependencies import get_vector_store
+
+router = APIRouter()
+
+# Request model
+class RequestBody(BaseModel):
+    input: str
+
+def contains_keywords(input: str, keywords: list) -> bool:
+    """
+    Check if the input contains any of the specified keywords.
+    """
+    return any(keyword.lower() in input.lower() for keyword in keywords)
+
+@router.post("/generate")
+async def generate_response(
+    data: RequestBody,
+    ai_service: AIService = Depends(get_ai_service),
+    vector_store: Optional[FAISS] = Depends(get_vector_store),
+):
+    try:
+        # Check if the input contains keywords related to issues
+        issue_keywords = ["issue", "incident", "ticket"]
+        if contains_keywords(data.input, issue_keywords):
+            # Ask the user for additional details
+            prompt = "Please provide the following details to create an issue:\n"
+            prompt += "1. Title\n2. Description\n3. Employee ID\n4. Email\n5. Name\n"
+            prompt += "You can also attach files (e.g., screenshots, logs)."
+
+            return {"response": prompt, "requires_issue_details": True}
+
+        # If vector store is available, search for relevant documents
+        if vector_store:
+            # Create a retriever
+            retriever = vector_store.as_retriever()
+
+            # Debug: Print the query
+            print(f"Query: {data.input}")
+
+            # Create a RetrievalQA chain
+            qa_chain = RetrievalQA.from_chain_type(
+                llm=ai_service,
+                chain_type="stuff",
+                retriever=retriever,
+                return_source_documents=True,
+            )
+
+            # Query the chain
+            result = qa_chain.invoke({"query": data.input})
+            
+            # Debug: Print the source documents
+            if result["source_documents"]:
+                print(f"Source documents: {result['source_documents']}")
+                return {"response": result["result"].strip(), "source": "document"}
+            else:
+                print("No relevant documents found. Falling back to OpenAI.")
+
+        # If no relevant document is found, fall back to OpenAI
+        response = ai_service.generate_response(data.input)
+        return {"response": response, "source": "openai"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
