@@ -198,3 +198,78 @@ Updated the /upload endpoint to use save_vector_store.
 Updated the get_vector_store function to use load_vector_store.
 
 This approach ensures that metadata is handled safely (using JSON) and avoids the need for allow_dangerous_deserialization=True.
+
+
+==================== UPDATE TO VECTOR STORE ============
+
+
+
+import os
+import json
+from langchain.vectorstores import FAISS
+from langchain.embeddings import AzureOpenAIEmbeddings
+
+def document_to_dict(doc):
+    """
+    Convert a Document object to a dictionary.
+    """
+    return {
+        "page_content": doc.page_content,
+        "metadata": doc.metadata,
+    }
+
+def save_vector_store(vector_store, folder_path: str):
+    """
+    Save the FAISS vector store and metadata to the specified folder.
+    """
+    # Ensure the directory exists
+    os.makedirs(folder_path, exist_ok=True)
+
+    # Save the FAISS index
+    vector_store.save_local(folder_path)
+
+    # Convert Document objects to dictionaries
+    documents = {
+        doc_id: document_to_dict(doc)
+        for doc_id, doc in vector_store.docstore._dict.items()
+    }
+
+    # Save metadata separately (e.g., document IDs, embeddings)
+    metadata = {
+        "documents": documents,
+        "index_to_docstore_id": vector_store.index_to_docstore_id,
+    }
+    with open(os.path.join(folder_path, "metadata.json"), "w") as f:
+        json.dump(metadata, f)
+
+def load_vector_store(folder_path: str, embeddings):
+    """
+    Load the FAISS vector store and metadata from the specified folder.
+    """
+    # Ensure the directory exists
+    if not os.path.exists(folder_path):
+        raise FileNotFoundError(f"Vector store directory not found: {folder_path}")
+
+    # Load the FAISS index
+    vector_store = FAISS.load_local(folder_path, embeddings, allow_dangerous_deserialization=False)
+
+    # Load metadata separately
+    metadata_path = os.path.join(folder_path, "metadata.json")
+    if os.path.exists(metadata_path):
+        with open(metadata_path, "r") as f:
+            metadata = json.load(f)
+
+        # Convert dictionaries back to Document objects
+        from langchain.schema import Document
+        documents = {
+            doc_id: Document(page_content=doc["page_content"], metadata=doc["metadata"])
+            for doc_id, doc in metadata["documents"].items()
+        }
+
+        # Restore metadata
+        vector_store.docstore._dict = documents
+        vector_store.index_to_docstore_id = metadata["index_to_docstore_id"]
+
+    return vector_store
+
+
