@@ -246,6 +246,12 @@ class IssueRequest(BaseModel):
     session_id: str
 app/main.py
 
+
+issue.py
+
+
+
+
 python
 Copy
 from fastapi import FastAPI
@@ -348,3 +354,170 @@ Flexible AI provider selection
 Secure credential management
 
 Comprehensive API documentation (via FastAPI's automatic docs at /docs)
+
+
+
+===================== UPDATES 1 ============
+
+You're absolutely right! Let me provide the missing issue.py schema and update the relevant references. Here's the complete implementation:
+
+1. app/schemas/issue.py
+
+python
+Copy
+from pydantic import BaseModel, EmailStr
+from typing import Optional, List
+from datetime import datetime
+
+class IssueBase(BaseModel):
+    title: str
+    description: str
+    attachments: Optional[List[str]] = None
+
+class IssueCreate(IssueBase):
+    username: str
+    email: EmailStr
+    gpn: str
+    session_id: str
+
+class IssueResponse(IssueBase):
+    id: int
+    created_at: datetime
+    web_url: str
+    status: str
+
+    class Config:
+        orm_mode = True
+2. Update app/schemas/init.py
+
+python
+Copy
+from .chat import ChatRequest
+from .issue import IssueCreate, IssueResponse
+
+__all__ = ["ChatRequest", "IssueCreate", "IssueResponse"]
+3. Update app/routers/chat.py (to use new schema)
+
+python
+Copy
+from fastapi import APIRouter, UploadFile, File, HTTPException
+from app.services.openai import OpenAIService
+from app.services.gitlab import GitLabService
+from app.schemas.chat import ChatRequest
+from app.schemas.issue import IssueCreate, IssueResponse  # Updated import
+
+router = APIRouter()
+
+# ... [previous code remains the same] ...
+
+@router.post("/create-issue", response_model=IssueResponse)  # Added response model
+async def create_issue(
+    issue_data: IssueCreate,  # Changed from IssueRequest to IssueCreate
+    files: list[UploadFile] = File(None)
+):
+    gitlab_service = GitLabService()
+    attachments = []
+    
+    try:
+        if files:
+            for file in files:
+                uploaded_file = gitlab_service.upload_file(file.file)
+                attachments.append(uploaded_file)
+        
+        issue = gitlab_service.create_issue(
+            title=f"Incident Report - {issue_data.username}",
+            description=f"""
+            **User:** {issue_data.username}
+            **Email:** {issue_data.email}
+            **GPN:** {issue_data.gpn}
+            **Description:** {issue_data.description}
+            """,
+            attachments=attachments
+        )
+        
+        return IssueResponse(  # Proper structured response
+            id=issue["id"],
+            title=issue["title"],
+            description=issue["description"],
+            created_at=issue["created_at"],
+            web_url=issue["web_url"],
+            status=issue["status"],
+            attachments=attachments
+        )
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+4. Update app/services/gitlab.py (to return proper structure)
+
+python
+Copy
+# Add this at the top
+from datetime import datetime
+from app.schemas.issue import IssueResponse  # New import
+
+# Modify create_issue method
+def create_issue(self, title: str, description: str, attachments: list = None) -> IssueResponse:
+    try:
+        # ... [previous code] ...
+        
+        return IssueResponse(
+            id=response.json()["id"],
+            title=response.json()["title"],
+            description=response.json()["description"],
+            created_at=datetime.fromisoformat(response.json()["created_at"]),
+            web_url=response.json()["web_url"],
+            status=response.json()["status"],
+            attachments=attachments
+        )
+    except requests.exceptions.RequestException as e:
+        raise RuntimeError(f"GitLab API error: {str(e)}")
+Key Improvements:
+
+Proper separation of concerns with dedicated issue schema
+
+Full typing support for issue creation and responses
+
+Response model validation for FastAPI documentation
+
+ISO datetime handling for GitLab timestamps
+
+Proper attachment URL handling in responses
+
+This implementation now:
+
+Provides full OpenAPI documentation for the issue endpoints
+
+Validates both input and output formats
+
+Handles datetime conversions automatically
+
+Maintains consistent error formats
+
+Shows proper relationship between chat and issue schemas
+
+Testing in Postman:
+The responses will now be strictly formatted according to the IssueResponse schema:
+
+json
+Copy
+{
+  "id": 12345,
+  "title": "Incident Report - John Doe",
+  "description": "**User:** John Doe...",
+  "attachments": ["https://gitlab.com/uploads/..."],
+  "created_at": "2024-02-15T14:30:00Z",
+  "web_url": "https://gitlab.com/...",
+  "status": "opened"
+}
+This completes the full implementation with proper schema validation and documentation. The service now has:
+
+Clear input validation (via IssueCreate)
+
+Structured output formatting (via IssueResponse)
+
+Proper separation of chat and issue concerns
+
+Full compatibility with FastAPI's automatic docs
+
+
+
