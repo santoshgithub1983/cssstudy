@@ -567,4 +567,79 @@ class GitLabService:
             raise RuntimeError(f"GitLab API error: {str(e)}")
 
 
+====================== UPDATE NEW 
+
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import AnyUrl, Field
+
+class Settings(BaseSettings):
+    # AI Provider Configuration
+    ai_provider: str = Field(
+        default="azure",
+        description="AI provider selection (azure|langchain)"
+    )
+    azure_openai_endpoint: str = Field(
+        ...,
+        description="Azure OpenAI endpoint URL"
+    )
+    azure_openai_key: str = Field(
+        ...,
+        description="Azure OpenAI API key"
+    )
+    azure_openai_deployment: str = Field(
+        default="gpt-35-turbo",
+        description="Azure OpenAI deployment name"
+    )
+
+    # GitLab Configuration
+    gitlab_api_url: AnyUrl = Field(
+        default="https://gitlab.com/api/v4",
+        description="GitLab API base URL"
+    )
+    gitlab_project_id: str = Field(
+        ...,
+        description="GitLab project ID for issue tracking"
+    )
+    gitlab_private_token: str = Field(
+        ...,
+        description="GitLab personal access token"
+    )
+
+    # Application Configuration
+    incident_keywords: list[str] = Field(
+        default=["incident", "issue", "ticket", "problem"],
+        description="Keywords triggering incident workflow"
+    )
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore"
+    )
+
+
+
+
+# Azure OpenAI
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
+AZURE_OPENAI_KEY=your-api-key-here
+AZURE_OPENAI_DEPLOYMENT=gpt-35-turbo
+
+# GitLab
+GITLAB_API_URL=https://gitlab.com/api/v4
+GITLAB_PROJECT_ID=12345678
+GITLAB_PRIVATE_TOKEN=glpat-your-token-here
+
+# Optional
+INCIDENT_KEYWORDS=incident,issue,ticket,problem
+AI_PROVIDER=azure
+
+
+
+from app.config.settings import settings
+
+print(settings.azure_openai_key)
+print(settings.gitlab_project_id)
 
