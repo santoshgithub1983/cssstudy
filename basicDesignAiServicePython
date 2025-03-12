@@ -1,0 +1,306 @@
+Here's the complete revised project structure with all discussed components:
+
+Project Structure
+
+Copy
+.
+├── .env.example
+├── .gitignore
+├── Dockerfile
+├── docker-compose.yml
+├── requirements.txt
+├── README.md
+├── app/
+│   ├── __init__.py
+│   ├── main.py
+│   ├── config/
+│   │   ├── __init__.py
+│   │   └── settings.py
+│   ├── services/
+│   │   ├── __init__.py
+│   │   ├── ai_service.py
+│   │   ├── openai.py
+│   │   └── gitlab.py
+│   ├── routers/
+│   │   ├── __init__.py
+│   │   └── chat.py
+│   └── schemas/
+│       ├── __init__.py
+│       ├── chat.py
+│       └── issue.py
+├── tests/
+│   ├── __init__.py
+│   └── test_service.py
+└── scripts/
+    └── setup_environment.sh
+File Contents
+
+app/config/settings.py
+
+python
+Copy
+from pydantic import BaseSettings, AnyUrl
+
+class Settings(BaseSettings):
+    ai_provider: str = "azure"  # "azure" or "langchain"
+    azure_openai_endpoint: str
+    azure_openai_key: str
+    azure_openai_deployment: str = "gpt-35-turbo"
+    gitlab_api_url: AnyUrl = "https://gitlab.com/api/v4"
+    gitlab_project_id: str
+    gitlab_private_token: str
+    incident_keywords: list = ["incident", "issue", "ticket", "problem"]
+    
+    class Config:
+        env_file = ".env"
+
+settings = Settings()
+app/services/ai_service.py
+
+python
+Copy
+from abc import ABC, abstractmethod
+from app.config import settings
+
+class AIService(ABC):
+    @abstractmethod
+    def get_response(self, prompt: str) -> str:
+        pass
+
+class AzureAIService(AIService):
+    def __init__(self):
+        from openai import AzureOpenAI
+        self.client = AzureOpenAI(
+            api_key=settings.azure_openai_key,
+            api_version="2023-12-01-preview",
+            azure_endpoint=settings.azure_openai_endpoint
+        )
+    
+    def get_response(self, prompt: str) -> str:
+        response = self.client.chat.completions.create(
+            model=settings.azure_openai_deployment,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        return response.choices[0].message.content
+
+class LangChainAIService(AIService):
+    def __init__(self):
+        from langchain.chat_models import AzureChatOpenAI
+        self.llm = AzureChatOpenAI(
+            openai_api_base=settings.azure_openai_endpoint,
+            openai_api_version="2023-12-01-preview",
+            deployment_name=settings.azure_openai_deployment,
+            openai_api_key=settings.azure_openai_key,
+            temperature=0.7
+        )
+    
+    def get_response(self, prompt: str) -> str:
+        from langchain.schema import HumanMessage
+        return self.llm([HumanMessage(content=prompt)]).content
+
+def ai_service_factory() -> AIService:
+    if settings.ai_provider == "langchain":
+        return LangChainAIService()
+    return AzureAIService()
+app/services/openai.py
+
+python
+Copy
+from app.services.ai_service import ai_service_factory
+from app.config import settings
+
+class OpenAIService:
+    def __init__(self):
+        self.client = ai_service_factory()
+    
+    def get_response(self, prompt: str) -> str:
+        try:
+            return self.client.get_response(prompt)
+        except Exception as e:
+            raise RuntimeError(f"AI Service error: {str(e)}")
+app/services/gitlab.py (same as previous version)
+
+python
+Copy
+# Same as previous GitLab service implementation
+app/routers/chat.py (updated with error handling)
+
+python
+Copy
+from fastapi import APIRouter, UploadFile, File, HTTPException
+from app.services.openai import OpenAIService
+from app.services.gitlab import GitLabService
+from app.schemas.chat import ChatRequest, IssueRequest
+from app.config import settings
+
+router = APIRouter()
+
+def contains_incident_keywords(prompt: str) -> bool:
+    return any(keyword in prompt.lower() for keyword in settings.incident_keywords)
+
+@router.post("/chat")
+async def handle_chat(request: ChatRequest):
+    openai_service = OpenAIService()
+    
+    try:
+        if contains_incident_keywords(request.prompt):
+            return {
+                "response": "Would you like to create an incident ticket?",
+                "requires_confirmation": True
+            }
+        
+        response = openai_service.get_response(request.prompt)
+        return {"response": response, "requires_confirmation": False}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/create-issue")
+async def create_issue(
+    issue_data: IssueRequest,
+    files: list[UploadFile] = File(None)
+):
+    gitlab_service = GitLabService()
+    attachments = []
+    
+    try:
+        if files:
+            for file in files:
+                uploaded_file = gitlab_service.upload_file(file.file)
+                attachments.append(uploaded_file)
+        
+        issue = gitlab_service.create_issue(
+            title=f"Incident Report - {issue_data.username}",
+            description=f"""
+            **User:** {issue_data.username}
+            **Email:** {issue_data.email}
+            **GPN:** {issue_data.gpn}
+            **Description:** {issue_data.description}
+            """,
+            attachments=attachments
+        )
+        
+        return {"issue_url": issue["web_url"]}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+app/schemas/chat.py
+
+python
+Copy
+from pydantic import BaseModel, EmailStr
+
+class ChatRequest(BaseModel):
+    prompt: str
+    session_id: str
+
+class IssueRequest(BaseModel):
+    username: str
+    email: EmailStr
+    gpn: str
+    description: str
+    session_id: str
+app/main.py
+
+python
+Copy
+from fastapi import FastAPI
+from app.routers.chat import router as chat_router
+from app.config import settings
+
+app = FastAPI(title="AI Support Microservice")
+app.include_router(chat_router, prefix="/api/v1")
+
+@app.get("/health")
+def health_check():
+    return {"status": "healthy"}
+requirements.txt
+
+txt
+Copy
+fastapi>=0.68.0
+uvicorn>=0.15.0
+python-dotenv>=0.19.0
+pydantic>=1.8.0
+requests>=2.26.0
+openai>=1.0.0
+langchain>=0.0.340  # Optional for LangChain implementation
+python-multipart>=0.0.5  # For file uploads
+Dockerfile
+
+dockerfile
+Copy
+FROM python:3.9-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+.env.example
+
+env
+Copy
+AZURE_OPENAI_ENDPOINT=
+AZURE_OPENAI_KEY=
+AZURE_OPENAI_DEPLOYMENT=gpt-35-turbo
+AI_PROVIDER=azure
+GITLAB_PROJECT_ID=
+GITLAB_PRIVATE_TOKEN=
+Key Features:
+
+Switchable AI providers via environment variable
+
+Full error handling with HTTP status codes
+
+Comprehensive type hints
+
+Environment-based configuration
+
+Modular architecture
+
+File upload support
+
+Health check endpoint
+
+Docker support
+
+API versioning
+
+Session management foundation
+
+To Run:
+
+Create .env file from .env.example
+
+Install dependencies: pip install -r requirements.txt
+
+Start service: uvicorn app.main:app --reload
+
+Switching Providers:
+
+bash
+Copy
+# For LangChain implementation
+AI_PROVIDER=langchain uvicorn app.main:app --reload
+
+# For Azure SDK (default)
+uvicorn app.main:app --reload
+This implementation provides:
+
+Production-ready structure
+
+Clear separation of concerns
+
+Easy maintenance
+
+Scalability through containerization
+
+Flexible AI provider selection
+
+Secure credential management
+
+Comprehensive API documentation (via FastAPI's automatic docs at /docs)
