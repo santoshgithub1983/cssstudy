@@ -643,3 +643,126 @@ from app.config.settings import settings
 print(settings.azure_openai_key)
 print(settings.gitlab_project_id)
 
+
+================= UPDATE FIX SRC.CONFIG SETTIGNS
+
+
+1. Fix Settings Configuration
+Update src/config/settings.py:
+
+python
+Copy
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import AnyUrl, Field
+
+class Settings(BaseSettings):
+    # AI Provider Configuration
+    ai_provider: str = Field(  # ← THIS FIELD MUST EXIST
+        default="azure",
+        description="AI provider selection (azure|langchain)"
+    )
+    azure_openai_endpoint: str = Field(...)
+    azure_openai_key: str = Field(...)
+    azure_openai_deployment: str = Field(default="gpt-35-turbo")
+
+    # Rest of your settings...
+    
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore"
+    )
+
+settings = Settings()  # ← MUST BE INSTANTIATED
+2. Verify Environment Variables
+Your .env file must contain:
+
+ini
+Copy
+AI_PROVIDER=azure  # or "langchain"
+AZURE_OPENAI_ENDPOINT=your-endpoint
+AZURE_OPENAI_KEY=your-key
+AZURE_OPENAI_DEPLOYMENT=gpt-35-turbo
+3. Check Service Implementation
+In src/services/ai_service.py:
+
+python
+Copy
+from src.config.settings import settings  # ← CORRECT IMPORT PATH
+
+class AIService(ABC):
+    @abstractmethod
+    def get_response(self, prompt: str) -> str:
+        pass
+
+def ai_service_factory() -> AIService:
+    if settings.ai_provider == "langchain":  # ← NOW WORKS
+        return LangChainAIService()
+    return AzureAIService()
+4. Common Fixes for This Error
+Missing Field in Settings Class
+Ensure ai_provider is defined in your Settings class
+
+Incorrect Environment Variable Name
+Use AI_PROVIDER in .env, not AI_PROVIDER_NAME or similar
+
+Wrong Import Path
+Verify the import matches your project structure:
+
+python
+Copy
+# Correct (if using src/ layout)
+from src.config.settings import settings
+
+# Wrong (if using app/ layout)
+from app.config.settings import settings
+Cached Imports
+Restart your Python process/container after making changes
+
+5. Test Settings in Isolation
+Add temporary verification:
+
+python
+Copy
+# Add to src/config/settings.py
+print(f"AI Provider: {settings.ai_provider}")  # Verify during startup
+You should see:
+
+Copy
+AI Provider: azure
+6. Final Directory Structure
+Copy
+src/
+├── config/
+│   └── settings.py  # ← Updated settings here
+├── services/
+│   ├── ai_service.py
+│   └── openai.py
+└── routers/
+    └── generate.py  # ← Your renamed endpoint
+7. Testing with Postman
+Request:
+
+Copy
+POST http://localhost:8000/api/v1/generate
+Content-Type: application/json
+
+{
+  "prompt": "test prompt",
+  "session_id": "test123"
+}
+Successful Response:
+
+json
+Copy
+{
+  "response": "...",
+  "requires_confirmation": false
+}
+This error typically occurs when:
+
+The ai_provider field is missing in settings
+
+Environment variables aren't loaded properly
+
+There's a project structure/import mismatch
