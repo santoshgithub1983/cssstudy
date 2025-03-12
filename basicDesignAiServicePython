@@ -120,6 +120,50 @@ class OpenAIService:
             raise RuntimeError(f"AI Service error: {str(e)}")
 app/services/gitlab.py (same as previous version)
 
+import requests
+from typing import Optional, IO
+from app.config import settings
+
+class GitLabService:
+    def __init__(self):
+        self.headers = {
+            "PRIVATE-TOKEN": settings.gitlab_private_token
+        }
+        self.base_url = f"{settings.gitlab_api_url}/projects/{settings.gitlab_project_id}"
+    
+    def create_issue(self, title: str, description: str, attachments: list = None) -> dict:
+        try:
+            payload = {
+                "title": title,
+                "description": description
+            }
+            if attachments:
+                payload["description"] += "\n\nAttachments:\n" + "\n".join(attachments)
+            
+            response = requests.post(
+                f"{self.base_url}/issues",
+                headers=self.headers,
+                json=payload
+            )
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            raise RuntimeError(f"GitLab API error: {str(e)}")
+    
+    def upload_file(self, file: IO) -> str:
+        try:
+            response = requests.post(
+                f"{self.base_url}/uploads",
+                headers=self.headers,
+                files={"file": file}
+            )
+            response.raise_for_status()
+            return response.json()["markdown"]
+        except requests.exceptions.RequestException as e:
+            raise RuntimeError(f"GitLab upload error: {str(e)}")
+
+
+
 python
 Copy
 # Same as previous GitLab service implementation
