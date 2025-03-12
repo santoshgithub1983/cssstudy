@@ -765,4 +765,77 @@ The ai_provider field is missing in settings
 
 Environment variables aren't loaded properly
 
+
+===================== UPDATE CHAT.py
+
+
+
+from fastapi import APIRouter, UploadFile, File, HTTPException, Form
+from app.services.openai import OpenAIService
+from app.services.gitlab import GitLabService
+from app.schemas.issue import IssueCreate, IssueResponse
+from typing import Optional, List
+
+router = APIRouter()
+
+@router.post("/create-issue", response_model=IssueResponse)
+async def create_issue(
+    # Form fields
+    username: str = Form(...),
+    email: str = Form(...),
+    gpn: str = Form(...),
+    description: str = Form(...),
+    session_id: str = Form(...),
+    # File uploads
+    files: Optional[List[UploadFile]] = File(None)
+):
+    gitlab_service = GitLabService()
+    attachments = []
+    
+    try:
+        # Handle file uploads first
+        if files:
+            for file in files:
+                uploaded_file = gitlab_service.upload_file(file.file)
+                attachments.append(uploaded_file)
+
+        # Create issue with validated data
+        issue_data = IssueCreate(
+            username=username,
+            email=email,
+            gpn=gpn,
+            description=description,
+            session_id=session_id
+        )
+
+        # Build GitLab issue description
+        issue_description = f"""
+        **User:** {issue_data.username}
+        **Email:** {issue_data.email}
+        **GPN:** {issue_data.gpn}
+        **Description:** {issue_data.description}
+        """
+        
+        if attachments:
+            issue_description += "\n\n**Attachments:**\n" + "\n".join(attachments)
+
+        # Create GitLab issue
+        issue = gitlab_service.create_issue(
+            title=f"Incident Report - {issue_data.username}",
+            description=issue_description.strip()
+        )
+
+        return IssueResponse(
+            id=issue.id,
+            title=issue.title,
+            description=issue.description,
+            created_at=issue.created_at,
+            web_url=issue.web_url,
+            status=issue.status,
+            attachments=attachments
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 There's a project structure/import mismatch
