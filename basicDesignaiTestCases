@@ -265,9 +265,6 @@ def test_create_issue_missing_field(mocker):
 
 python
 Copy
-import tempfile
-from fastapi import status
-
 def test_create_issue_success(test_client, mocker):
     mock_upload = mocker.patch("app.services.gitlab.GitLabService.upload_file")
     mock_upload.return_value = "[network.log](/uploads/123/network.log)"
@@ -282,15 +279,16 @@ def test_create_issue_success(test_client, mocker):
         "web_url": "https://gitlab.com/test-project/-/issues/123"
     }
 
+    # Send as multipart form data even without files
     response = test_client.post(
         "/api/v1/create-issue",
-        data={
-            "username": "john",
-            "email": "john@example.com",
-            "gpn": "12345",
-            "description": "Network outage",
-            "session_id": "test123"
-        }
+        files=[
+            ("username", (None, "john")),
+            ("email", (None, "john@example.com")),
+            ("gpn", (None, "12345")),
+            ("description", (None, "Network outage")),
+            ("session_id", (None, "test123"))
+        ]
     )
 
     assert response.status_code == status.HTTP_200_OK
