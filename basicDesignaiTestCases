@@ -405,3 +405,40 @@ pytest tests/ -v
 
 # Run specific test module
 pytest tests/test_routers/test_issues.py -v
+
+
+
+
+
+==============
+
+
+def test_openai_service_response(mocker):
+    # Mock the AzureOpenAI client and response structure
+    mock_client_instance = mocker.MagicMock()
+    mock_completion = mocker.MagicMock()
+    mock_message = mocker.MagicMock()
+    
+    mock_message.content = "Test response"
+    mock_completion.choices = [mocker.MagicMock(message=mock_message)]
+    
+    # Mock the client method chain
+    mock_client_instance.chat.completions.create.return_value = mock_completion
+    
+    # Patch the AzureOpenAI client
+    mocker.patch(
+        "openai.AzureOpenAI",  # Correct patch target
+        return_value=mock_client_instance
+    )
+    
+    service = OpenAIService()
+    response = service.get_response("Test prompt")
+    
+    # Verify the response
+    assert response == "Test response"
+    
+    # Verify the API call
+    mock_client_instance.chat.completions.create.assert_called_once_with(
+        model=service.client.deployment,  # Or your actual deployment name
+        messages=[{"role": "user", "content": "Test prompt"}]
+    )
