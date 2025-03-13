@@ -1,0 +1,219 @@
+Let's create comprehensive tests for your FastAPI service using pytest. We'll cover all major components including OpenAI interactions, GitLab integration, and file handling.
+
+1. Setup Testing Environment
+
+bash
+Copy
+# Install testing dependencies
+pip install pytest httpx pytest-asyncio pytest-mock python-multipart
+2. Test Directory Structure
+
+Copy
+tests/
+├── conftest.py
+├── test_routers/
+│   ├── test_chat.py
+│   └── test_issues.py
+└── test_services/
+    ├── test_gitlab.py
+    └── test_openai.py
+3. conftest.py (Shared Fixtures)
+
+python
+Copy
+import pytest
+from fastapi.testclient import TestClient
+from app.main import app
+from app.config import settings
+
+@pytest.fixture(scope="module")
+def test_client():
+    return TestClient(app)
+
+@pytest.fixture(autouse=True)
+def mock_settings(monkeypatch):
+    # Override settings for testing
+    monkeypatch.setattr(settings, "ai_provider", "azure")
+    monkeypatch.setattr(settings, "incident_keywords", ["incident", "issue"])
+    monkeypatch.setattr(settings, "gitlab_project_id", "test-project")
+4. test_routers/test_chat.py
+
+python
+Copy
+from fastapi import status
+
+def test_chat_endpoint_normal_response(test_client, mocker):
+    # Mock OpenAI response
+    mock_openai = mocker.patch("app.services.openai.OpenAIService.get_response")
+    mock_openai.return_value = "Reset your password using the portal"
+    
+    response = test_client.post("/api/v1/chat", json={
+        "prompt": "How to reset password?",
+        "session_id": "test123"
+    })
+    
+    assert response.status_code == status.HTTP_200_OK
+    assert not response.json()["requires_confirmation"]
+    assert "reset" in response.json()["response"].lower()
+
+def test_chat_endpoint_incident_trigger(test_client):
+    response = test_client.post("/api/v1/chat", json={
+        "prompt": "We have a critical incident",
+        "session_id": "test456"
+    })
+    
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["requires_confirmation"]
+    assert "create an incident ticket" in response.json()["response"]
+5. test_routers/test_issues.py
+
+python
+Copy
+import tempfile
+from fastapi import status
+
+def test_create_issue_with_files(test_client, mocker):
+    # Mock GitLab API responses
+    mock_upload = mocker.patch("app.services.gitlab.GitLabService.upload_file")
+    mock_upload.return_value = "[network.log](/uploads/123/network.log)"
+    
+    mock_create = mocker.patch("app.services.gitlab.GitLabService.create_issue")
+    mock_create.return_value = {
+        "id": 123,
+        "web_url": "https://gitlab.com/test-project/-/issues/123"
+    }
+
+    with tempfile.NamedTemporaryFile(suffix=".log") as test_file:
+        test_file.write(b"test log content")
+        test_file.seek(0)
+        
+        response = test_client.post(
+            "/api/v1/create-issue",
+            data={
+                "username": "john",
+                "email": "john@example.com",
+                "gpn": "12345",
+                "description": "Network outage",
+                "session_id": "test123"
+            },
+            files={"files": ("network.log", test_file, "text/plain")}
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert "gitlab.com" in response.json()["web_url"]
+
+def test_create_issue_validation_error(test_client):
+    response = test_client.post("/api/v1/create-issue", data={
+        "username": "john",
+        # Missing required email field
+        "gpn": "12345",
+        "description": "Network outage",
+        "session_id": "test123"
+    })
+    
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert "email" in response.text
+6. test_services/test_gitlab.py
+
+python
+Copy
+import pytest
+from unittest.mock import Mock
+from app.services.gitlab import GitLabService
+
+def test_file_upload_success(mocker):
+    mock_response = Mock()
+    mock_response.json.return_value = {"markdown": "[file.txt](/uploads/123/file.txt)"}
+    mock_response.raise_for_status.return_value = None
+    
+    mocker.patch("requests.post", return_value=mock_response)
+    
+    service = GitLabService()
+    result = service.upload_file(Mock(
+        filename="test.txt",
+        file=Mock(),
+        content_type="text/plain"
+    ))
+    
+    assert "file.txt" in result
+
+def test_create_issue_with_attachments(mocker):
+    mock_response = Mock()
+    mock_response.json.return_value = {"web_url": "https://gitlab.com/issue/123"}
+    mock_response.raise_for_status.return_value = None
+    mocker.patch("requests.post", return_value=mock_response)
+    
+    service = GitLabService()
+    result = service.create_issue(
+        title="Test Issue",
+        description="Test Description",
+        attachments=["[file.txt](/uploads/123/file.txt)"]
+    )
+    
+    assert "gitlab.com" in result["web_url"]
+7. test_services/test_openai.py
+
+python
+Copy
+from app.services.openai import OpenAIService
+
+def test_openai_service_response(mocker):
+    mock_client = mocker.patch("openai.resources.chat.Completions.create")
+    mock_client.return_value = {
+        "choices": [{"message": {"content": "Test response"}}]
+    }
+    
+    service = OpenAIService()
+    response = service.get_response("Test prompt")
+    
+    assert response == "Test response"
+
+def test_openai_service_error_handling(mocker):
+    mocker.patch(
+        "openai.resources.chat.Completions.create",
+        side_effect=Exception("API Error")
+    )
+    
+    service = OpenAIService()
+    with pytest.raises(RuntimeError) as exc_info:
+        service.get_response("Test prompt")
+    
+    assert "API Error" in str(exc_info.value)
+8. Running Tests
+
+bash
+Copy
+# Run all tests with coverage
+pytest --cov=app --cov-report=html tests/
+
+# Run specific test module
+pytest tests/test_routers/test_chat.py -v
+Key Test Features:
+
+Full endpoint testing with TestClient
+
+Mocked external API calls
+
+File upload testing with temporary files
+
+Validation error testing
+
+Error scenario coverage
+
+85%+ test coverage target
+
+Fast execution (no real API calls)
+
+Additional Recommendations:
+
+Add integration tests for critical paths
+
+Implement CI/CD pipeline with test stage
+
+Add performance testing for high-load endpoints
+
+Include security testing (OWASP ZAP, Bandit)
+
+Generate OpenAPI spec validation tests
+
+Let me know if you need help setting up any specific test scenario or want to add more advanced testing capabilities!
