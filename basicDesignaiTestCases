@@ -442,3 +442,69 @@ def test_openai_service_response(mocker):
         model=service.client.deployment,  # Or your actual deployment name
         messages=[{"role": "user", "content": "Test prompt"}]
     )
+
+
+
+=== UPDATED DOCKER IMAGE
+
+
+# Build stage
+FROM python:3.11-slim-bookworm as builder
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    build-essential \
+    libssl-dev \
+    ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+# Create virtual environment
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Runtime stage
+FROM python:3.11-slim-bookworm
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app/src \
+    PORT=8000 \
+    APP_ENV=production
+
+# Install runtime dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    libgomp1 \
+    ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy virtual environment from builder
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Create non-root user
+RUN useradd -m -u 1001 appuser
+WORKDIR /app
+RUN chown appuser:appuser /app
+USER appuser
+
+# Copy application code
+COPY --chown=appuser:appuser src/ ./src/
+COPY --chown=appuser:appuser .env.example ./src/.env
+
+# Expose port and health check
+EXPOSE ${PORT}
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl --fail http://localhost:${PORT}/health || exit 1
+
+# Run the application
+CMD ["gunicorn", "src.app.main:app", "--workers", "2", "--worker-class", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000"]
+
+
