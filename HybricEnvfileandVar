@@ -1,0 +1,116 @@
+Here's how to implement a configuration system that prioritizes environment variables while allowing .env file values to serve as fallbacks (with empty values in .env being overridden by environment variables):
+
+python
+Copy
+# src/app/config/settings.py
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator, ValidationError
+from typing import Optional
+
+class Settings(BaseSettings):
+    # Mark fields as Optional for .env fallback
+    azure_openai_endpoint: Optional[str] = None
+    azure_openai_key: Optional[str] = None
+    gitlab_private_token: Optional[str] = None
+    gitlab_project_id: Optional[str] = None
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore"
+    )
+
+    @field_validator('*', mode='before')
+    @classmethod
+    def handle_empty_values(cls, value: str) -> Optional[str]:
+        """Convert empty strings to None to trigger environment lookup"""
+        return value if value.strip() != "" else None
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._validate_required()
+
+    def _validate_required(self):
+        """Ensure required values are present from either source"""
+        required_fields = {
+            'azure_openai_endpoint': os.getenv('AZURE_OPENAI_ENDPOINT'),
+            'azure_openai_key': os.getenv('AZURE_OPENAI_KEY'),
+            'gitlab_private_token': os.getenv('GITLAB_PRIVATE_TOKEN'),
+            'gitlab_project_id': os.getenv('GITLAB_PROJECT_ID')
+        }
+
+        for field, env_value in required_fields.items():
+            if getattr(self, field) is None and env_value is None:
+                raise ValueError(
+                    f"Missing required configuration for {field}. "
+                    "Set in .env or environment variables."
+                )
+
+settings = Settings()
+Key Features:
+
+Priority Order:
+
+Environment Variables (highest priority)
+
+.env file values
+
+Raises error if missing from both
+
+Handling Empty .env Values:
+
+ini
+Copy
+# .env (development)
+AZURE_OPENAI_ENDPOINT=""  # Will be overridden by environment variable
+GITLAB_PROJECT_ID="123"   # Used if no env var exists
+Runtime Validation:
+
+python
+Copy
+# During initialization
+try:
+    from app.config import settings
+except ValueError as e:
+    print(f"Configuration error: {str(e)}")
+    exit(1)
+Usage Scenarios:
+
+1. Local Development with .env
+
+ini
+Copy
+# .env
+AZURE_OPENAI_ENDPOINT="https://localhost"
+AZURE_OPENAI_KEY="dev-key"
+GITLAB_PRIVATE_TOKEN=""
+GITLAB_PROJECT_ID=""
+2. Production with Environment Variables
+
+bash
+Copy
+docker run -e AZURE_OPENAI_ENDPOINT="https://prod-endpoint" \
+           -e AZURE_OPENAI_KEY="prod-key" \
+           -e GITLAB_PRIVATE_TOKEN="glpat-prod" \
+           -e GITLAB_PROJECT_ID="456" \
+           your-image:latest
+3. Hybrid Setup
+
+bash
+Copy
+# .env present but incomplete + environment variables
+export AZURE_OPENAI_KEY="secret-key"
+docker run --env-file .env your-image:latest
+This implementation provides:
+
+Flexible configuration sources
+
+Clear error messages for missing values
+
+Safe handling of empty .env entries
+
+Compatibility with Docker and CI/CD pipelines
+
+Type safety through Pydantic validation
+
+Would you like me to explain any specific aspect in more detail?
