@@ -114,3 +114,20 @@ Compatibility with Docker and CI/CD pipelines
 Type safety through Pydantic validation
 
 Would you like me to explain any specific aspect in more detail?
+
+
+=== ADD INCIDENT ATRIBUTE ====
+
+    # Add incident_keywords with proper configuration
+    incident_keywords: List[str] = Field(
+        default=["incident", "issue", "ticket", "problem"],
+        description="Keywords triggering incident workflow"
+    )
+
+    @field_validator('incident_keywords', mode='before')
+    @classmethod
+    def parse_incident_keywords(cls, value):
+        if isinstance(value, str):
+            return [kw.strip().lower() for kw in value.split(",")]
+        return value
+
