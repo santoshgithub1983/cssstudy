@@ -1,0 +1,161 @@
+Here's the complete implementation across relevant files with proper handling of comma-separated INCIDENT_KEYWORDS:
+
+1. src/app/config/settings.py
+
+python
+Copy
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, field_validator, ValidationInfo
+from typing import List
+import os
+
+class Settings(BaseSettings):
+    # Azure OpenAI Configuration
+    azure_openai_endpoint: str = Field(
+        ..., 
+        validation_alias="AZURE_OPENAI_ENDPOINT",
+        description="Azure OpenAI endpoint URL"
+    )
+    azure_openai_key: str = Field(
+        ..., 
+        validation_alias="AZURE_OPENAI_KEY",
+        description="Azure OpenAI API key"
+    )
+    
+    # GitLab Configuration
+    gitlab_project_id: str = Field(
+        ..., 
+        validation_alias="GITLAB_PROJECT_ID",
+        description="GitLab project ID"
+    )
+    gitlab_private_token: str = Field(
+        ..., 
+        validation_alias="GITLAB_PRIVATE_TOKEN",
+        description="GitLab access token"
+    )
+    
+    # Incident Detection Configuration
+    incident_keywords: List[str] = Field(
+        default=["incident", "issue", "ticket", "problem"],
+        validation_alias="INCIDENT_KEYWORDS",
+        description="Comma-separated list of trigger keywords"
+    )
+
+    @field_validator('incident_keywords', mode='before')
+    @classmethod
+    def process_incident_keywords(cls, value: str | None, info: ValidationInfo) -> List[str]:
+        """Parse and validate incident keywords from comma-separated string"""
+        field = info.field
+        default = field.default
+        
+        # Get raw value from environment if not passed directly
+        if value is None:
+            env_value = os.getenv(field.validation_alias or "INCIDENT_KEYWORDS")
+            value = env_value if env_value is not None else value
+
+        # Handle empty/None cases
+        if not value:
+            return default
+
+        # Process string input
+        if isinstance(value, str):
+            keywords = [kw.strip().lower() for kw in value.split(",") if kw.strip()]
+            return keywords if keywords else default
+
+        # Handle list input (from .env file if using JSON)
+        if isinstance(value, list):
+            return [kw.strip().lower() for kw in value if kw.strip()]
+
+        return default
+
+    model_config = SettingsConfigDict(
+        env_file=".env" if os.path.exists(".env") else None,
+        env_file_encoding='utf-8',
+        case_sensitive=False,
+        extra='ignore'
+    )
+
+settings = Settings()
+2. src/app/services/incident_detector.py
+
+python
+Copy
+from app.config import settings
+
+def contains_incident_keywords(prompt: str) -> bool:
+    """Check if prompt contains any incident keywords"""
+    prompt_lower = prompt.lower()
+    return any(
+        keyword in prompt_lower
+        for keyword in settings.incident_keywords
+    )
+3. src/app/routers/chat.py
+
+python
+Copy
+from fastapi import APIRouter
+from app.services.openai import OpenAIService
+from app.services.incident_detector import contains_incident_keywords
+from app.config import settings
+
+router = APIRouter()
+
+@router.post("/chat")
+async def handle_chat(prompt: str):
+    if contains_incident_keywords(prompt):
+        return {
+            "action": "create_incident",
+            "message": "Would you like to create a support ticket?"
+        }
+    
+    # Normal processing
+    response = OpenAIService().get_response(prompt)
+    return {"response": response}
+4. .env File Example
+
+ini
+Copy
+# Development environment
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
+AZURE_OPENAI_KEY=your-api-key
+GITLAB_PROJECT_ID=12345
+GITLAB_PRIVATE_TOKEN=glpat-your-token
+INCIDENT_KEYWORDS=outage, downtime, critical  # Comma-separated with spaces
+5. Helm Chart Values Example
+
+yaml
+Copy
+# production-values.yaml
+env:
+  AZURE_OPENAI_ENDPOINT: "https://prod-resource.openai.azure.com"
+  AZURE_OPENAI_KEY: "prod-api-key"
+  GITLAB_PROJECT_ID: "67890"
+  GITLAB_PRIVATE_TOKEN: "glpat-prod-token"
+  INCIDENT_KEYWORDS: "prod-outage,production-issue,urgent"
+6. Docker Run Command
+
+bash
+Copy
+docker run -p 8000:8000 \
+  -e AZURE_OPENAI_ENDPOINT=$PROD_ENDPOINT \
+  -e AZURE_OPENAI_KEY=$PROD_KEY \
+  -e GITLAB_PROJECT_ID=$PROD_PROJECT_ID \
+  -e GITLAB_PRIVATE_TOKEN=$PROD_TOKEN \
+  -e INCIDENT_KEYWORDS="prod-issue,urgent" \
+  your-image:latest
+Key Features:
+
+Flexible Configuration Sources:
+Environment variables (highest priority)
+.env file (development)
+Default values (safety net)
+Keyword Handling:
+Accepts comma-separated strings
+Automatic whitespace trimming
+Case-insensitive matching
+Empty value fallback to defaults
+Validation:
+Requires all non-optional fields
+Validates keyword list structure
+Handles empty/missing values gracefully
+This implementation provides a robust configuration system that works seamlessly across local development, Docker containers, and Kubernetes deployments while maintaining security best practices.
