@@ -131,3 +131,134 @@ Would you like me to explain any specific aspect in more detail?
             return [kw.strip().lower() for kw in value.split(",")]
         return value
 
+=======  UPDATES   =====
+
+
+
+Let's implement a robust configuration system that prioritizes environment variables over .env file values and handles empty values properly. Here's the optimized solution:
+
+1. Updated Settings Configuration (src/app/config/settings.py)
+
+python
+Copy
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, field_validator
+from typing import List, Optional
+import os
+
+class Settings(BaseSettings):
+    # Azure OpenAI Configuration
+    azure_openai_endpoint: str = Field(..., validation_alias="AZURE_OPENAI_ENDPOINT")
+    azure_openai_key: Optional[str] = Field(None, validation_alias="AZURE_OPENAI_KEY")
+    
+    # GitLab Configuration
+    gitlab_project_id: str = Field(..., validation_alias="GITLAB_PROJECT_ID")
+    gitlab_private_token: str = Field(..., validation_alias="GITLAB_PRIVATE_TOKEN")
+    
+    # Incident Detection
+    incident_keywords: List[str] = Field(
+        default=["incident", "issue", "ticket", "problem"],
+        validation_alias="INCIDENT_KEYWORDS"
+    )
+
+    @field_validator('incident_keywords', mode='before')
+    @classmethod
+    def split_keywords(cls, value):
+        if isinstance(value, str):
+            return [kw.strip().lower() for kw in value.split(",") if kw.strip()]
+        return value
+
+    model_config = SettingsConfigDict(
+        # Look for .env file but environment variables take priority
+        env_file=".env" if os.path.exists(".env") else None,
+        env_file_encoding="utf-8",
+        extra="ignore",
+        case_sensitive=False
+    )
+
+settings = Settings()
+2. Dockerfile Modification
+
+dockerfile
+Copy
+# Remove .env file copy from Dockerfile
+# Keep only:
+COPY --chown=appuser:appuser src/ ./src/
+3. Helm Chart Values Example
+
+yaml
+Copy
+# values.yaml
+env:
+  AZURE_OPENAI_ENDPOINT: "https://your-endpoint.openai.azure.com"
+  AZURE_OPENAI_KEY: "your-azure-key"
+  GITLAB_PROJECT_ID: "123456"
+  GITLAB_PRIVATE_TOKEN: "glpat-your-token"
+  INCIDENT_KEYWORDS: "outage,production-down,urgent"
+4. Deployment Strategy
+
+bash
+Copy
+# Helm install command
+helm install yourapp ./chart \
+  --set env.AZURE_OPENAI_ENDPOINT=$AZURE_OPENAI_ENDPOINT \
+  --set env.GITLAB_PRIVATE_TOKEN=$GITLAB_TOKEN
+Key Features:
+
+Priority Order:
+
+Environment Variables (Highest Priority)
+
+.env File (Development Only)
+
+Default Values (Lowest Priority)
+
+Empty Value Handling:
+
+If .env value is empty/missing, environment variables are used
+
+If both are missing, validation error occurs
+
+List Field Handling:
+
+Accepts comma-separated strings from environment
+
+Converts to cleaned list of keywords
+
+Verification Process:
+
+python
+Copy
+# Test case 1: Environment variables only
+os.environ["AZURE_OPENAI_ENDPOINT"] = "helm-endpoint"
+os.environ["GITLAB_PROJECT_ID"] = "helm-project"
+settings = Settings()
+print(settings.azure_openai_endpoint)  # Output: "helm-endpoint"
+
+# Test case 2: Empty .env values
+with open(".env", "w") as f:
+    f.write("AZURE_OPENAI_ENDPOINT=\nGITLAB_PROJECT_ID=")
+os.environ["AZURE_OPENAI_ENDPOINT"] = "helm-endpoint"
+settings = Settings()
+print(settings.azure_openai_endpoint)  # Output: "helm-endpoint"
+Error Handling:
+
+If required values are missing from both sources:
+
+python
+Copy
+ValidationError: 1 validation error for Settings
+azure_openai_endpoint
+  Field required [type=missing, input_value={}, input_type=dict]
+This implementation provides:
+
+Clear environment variable precedence
+
+Kubernetes/Helm compatibility
+
+Development-friendly .env support
+
+Production-grade secret management
+
+Proper list/string type handling
+
