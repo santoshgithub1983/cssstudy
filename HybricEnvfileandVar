@@ -262,3 +262,143 @@ Production-grade secret management
 
 Proper list/string type handling
 
+
+
+=== UPDATE NEW 
+
+
+
+Here's the final implementation that handles empty .env values and properly falls back to environment variables:
+
+python
+Copy
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, field_validator
+from typing import List, Optional
+import os
+
+class Settings(BaseSettings):
+    # Azure OpenAI Configuration
+    azure_openai_endpoint: str = Field(
+        ..., 
+        validation_alias="AZURE_OPENAI_ENDPOINT",
+        description="Azure OpenAI endpoint URL (required)"
+    )
+    azure_openai_key: str = Field(
+        ..., 
+        validation_alias="AZURE_OPENAI_KEY",
+        description="Azure OpenAI API key (required)"
+    )
+    
+    # GitLab Configuration
+    gitlab_project_id: str = Field(
+        ..., 
+        validation_alias="GITLAB_PROJECT_ID",
+        description="GitLab project ID (required)"
+    )
+    gitlab_private_token: str = Field(
+        ..., 
+        validation_alias="GITLAB_PRIVATE_TOKEN",
+        description="GitLab access token (required)"
+    )
+    
+    # Incident Detection
+    incident_keywords: List[str] = Field(
+        default=["incident", "issue", "ticket", "problem"],
+        validation_alias="INCIDENT_KEYWORDS",
+        description="Comma-separated list of trigger keywords"
+    )
+
+    @field_validator('*', mode='before')
+    @classmethod
+    def handle_empty_values(cls, value):
+        """Convert empty strings to None to trigger environment lookup"""
+        if isinstance(value, str) and value.strip() == '':
+            return None
+        return value
+
+    @field_validator('incident_keywords', mode='before')
+    @classmethod
+    def split_keywords(cls, value):
+        """Process comma-separated keywords"""
+        if isinstance(value, str):
+            return [kw.strip().lower() for kw in value.split(",") if kw.strip()]
+        return value
+
+    model_config = SettingsConfigDict(
+        # Always check environment variables first
+        env_file=".env" if os.path.exists(".env") else None,
+        env_file_encoding='utf-8',
+        case_sensitive=False,
+        extra='ignore'
+    )
+
+settings = Settings()
+Key Features:
+
+Priority Order:
+
+Environment Variables (Highest Priority)
+
+.env File Values (Convert empty values to None)
+
+Default Values (If defined)
+
+Validation Flow:
+
+mermaid
+Copy
+graph TD
+  A[Start] --> B{Check Env Vars}
+  B -- Found --> C[Use Env Var Value]
+  B -- Not Found --> D{Check .env File}
+  D -- Found --> E[Convert empty to None]
+  E -- Non-Empty --> F[Use .env Value]
+  E -- Empty --> G[Use Default if exists]
+  D -- Not Found --> H[Use Default if exists]
+  H -- No Default --> I[Validation Error]
+Usage Scenarios:
+
+Development with .env:
+
+ini
+Copy
+# .env
+AZURE_OPENAI_ENDPOINT=""
+AZURE_OPENAI_KEY=""
+bash
+Copy
+# Shell environment
+export AZURE_OPENAI_ENDPOINT="https://real-endpoint.azure.com"
+export AZURE_OPENAI_KEY="real-key"
+Result: Uses values from environment variables
+
+Production without .env:
+
+bash
+Copy
+docker run -e AZURE_OPENAI_ENDPOINT="https://prod.azure.com" \
+           -e AZURE_OPENAI_KEY="prod-key" \
+           your-image:latest
+Result: Uses provided environment variables
+
+Hybrid Setup:
+
+ini
+Copy
+# .env
+INCIDENT_KEYWORDS="outage,downtime"
+bash
+Copy
+export GITLAB_PROJECT_ID="123"
+Result: Combines .env keywords with environment variables
+
+Error Handling:
+
+Fails fast with clear messages if required values are missing from both sources:
+
+Copy
+ValidationError: 1 validation error for Settings
+azure_openai_endpoint
+  Field required [type=missing, input_value={}, input_type=dict]
+This implementation provides robust configuration handling for both development and production environments while maintaining security best practices.
