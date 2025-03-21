@@ -1,0 +1,142 @@
+Let's simplify the configuration to directly use environment variables without relying on Pydantic's BaseSettings. Here's a minimal implementation:
+
+1. Simplified settings.py
+python
+Copy
+# src/app/config.py
+import os
+
+class Config:
+    @property
+    def AZURE_OPENAI_ENDPOINT(self):
+        return os.getenv("AZURE_OPENAI_ENDPOINT")
+    
+    @property
+    def AZURE_OPENAI_KEY(self):
+        return os.getenv("AZURE_OPENAI_KEY")
+    
+    @property
+    def GITLAB_PROJECT_ID(self):
+        return os.getenv("GITLAB_PROJECT_ID")
+    
+    @property
+    def GITLAB_PRIVATE_TOKEN(self):
+        return os.getenv("GITLAB_PRIVATE_TOKEN")
+    
+    @property
+    def INCIDENT_KEYWORDS(self):
+        return os.getenv("INCIDENT_KEYWORDS", "incident,issue,ticket,problem").split(",")
+
+config = Config()
+2. Update Dockerfile (Remove .env Dependency)
+dockerfile
+Copy
+FROM python:3.11-slim-bookworm
+
+# Set only technical environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app/src \
+    PORT=8080
+
+# ... [rest of your Dockerfile remains unchanged] ...
+3. Usage in Code
+python
+Copy
+from app.config import config
+
+def contains_incident_keywords(prompt: str) -> bool:
+    keywords = [kw.strip().lower() for kw in config.INCIDENT_KEYWORDS]
+    return any(kw in prompt.lower() for kw in keywords)
+
+def create_gitlab_issue():
+    gitlab_project = config.GITLAB_PROJECT_ID
+    gitlab_token = config.GITLAB_PRIVATE_TOKEN
+    # ... rest of your code ...
+4. Kubernetes Deployment Example
+yaml
+Copy
+apiVersion: apps/v1
+kind: Deployment
+spec:
+  template:
+    spec:
+      containers:
+      - name: app
+        image: your-image:latest
+        env:
+          - name: AZURE_OPENAI_ENDPOINT
+            value: "https://your-endpoint.openai.azure.com"
+          - name: AZURE_OPENAI_KEY
+            valueFrom:
+              secretKeyRef:
+                name: azure-secrets
+                key: api-key
+          - name: GITLAB_PROJECT_ID
+            value: "12345"
+          - name: GITLAB_PRIVATE_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: gitlab-secrets
+                key: token
+Key Changes:
+Direct OS Environment Access:
+
+Uses os.getenv() instead of Pydantic validation
+
+No complex validation logic
+
+Default values handled in code
+
+Mandatory Variables Check:
+Add startup validation in your FastAPI app:
+
+python
+Copy
+from fastapi import FastAPI
+from app.config import config
+
+app = FastAPI()
+
+@app.on_event("startup")
+async def verify_config():
+    required = [
+        config.AZURE_OPENAI_ENDPOINT,
+        config.AZURE_OPENAI_KEY,
+        config.GITLAB_PROJECT_ID,
+        config.GITLAB_PRIVATE_TOKEN
+    ]
+    
+    if None in required:
+        missing = [name for name, value in zip(
+            ["AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_KEY", 
+             "GITLAB_PROJECT_ID", "GITLAB_PRIVATE_TOKEN"], 
+            required) if value is None]
+            
+        raise RuntimeError(f"Missing required environment variables: {missing}")
+Verification Steps:
+Local Test:
+
+bash
+Copy
+docker run -p 8080:8080 \
+  -e AZURE_OPENAI_ENDPOINT="test-endpoint" \
+  -e AZURE_OPENAI_KEY="test-key" \
+  -e GITLAB_PROJECT_ID="123" \
+  -e GITLAB_PRIVATE_TOKEN="test-token" \
+  your-image:latest
+Kubernetes Test:
+
+bash
+Copy
+kubectl exec <pod-name> -- python -c "
+from app.config import config
+print('Azure Endpoint:', config.AZURE_OPENAI_ENDPOINT)
+print('GitLab Project:', config.GITLAB_PROJECT_ID)
+"
+Pros/Cons:
+Pros	Cons
+No dependency conflicts	Loses validation & type safety
+Simpler debugging	Manual error checking required
+Faster startup time	No auto-documentation
+Works with any container runtime	Less maintainable for complex config
+This approach removes all Pydantic-related complexity while maintaining the core functionality. It's particularly useful if you're experiencing dependency version conflicts or validation-related startup issues.
