@@ -1,0 +1,84 @@
+It looks like your class variables are not retaining values when accessed via methods (getters/setters). This usually happens due to late binding or incorrect instance vs. class-level variable usage.
+
+✅ 1️⃣ Issue Breakdown
+
+If your TestConstants class is not retaining os.getenv values, it could be due to:
+❌ Using class variables (AZURE_ENDPOINT = os.getenv(...)) but accessing them via instance methods.
+❌ Re-evaluating os.getenv dynamically instead of storing it once.
+
+✅ 2️⃣ Correct Way: Store Env Variables in __init__ & Use Getters
+
+Modify TestConstants.py like this:
+
+import os
+
+class TestConstants:
+    """Fetch configuration values dynamically from environment variables"""
+
+    def __init__(self):
+        """Initialize environment variables only once"""
+        self._azure_endpoint = os.getenv("AZURE_ENDPOINT", "https://default-endpoint.openai.azure.com/")
+        self._api_key = os.getenv("API_KEY", "*****")  # Masked
+        self._deployment_name = os.getenv("DEPLOYMENT_NAME", "gpt-4-deployment")
+        self._max_retries = int(os.getenv("MAX_RETRIES", 3))
+        self._timeout = int(os.getenv("TIMEOUT", 30))
+        self._enable_logging = os.getenv("ENABLE_LOGGING", "true").lower() == "true"
+
+    # Getters
+    def get_azure_endpoint(self):
+        return self._azure_endpoint
+
+    def get_api_key(self):
+        return "*****"  # Always return masked
+
+    def get_deployment_name(self):
+        return self._deployment_name
+
+    def get_max_retries(self):
+        return self._max_retries
+
+    def get_timeout(self):
+        return self._timeout
+
+    def get_enable_logging(self):
+        return self._enable_logging
+
+# Create a single instance
+config = TestConstants()
+✅ 3️⃣ Why This Works?
+
+✔ Values are stored in __init__ (Instance Variables), not re-fetched on every call.
+✔ Instance variables (self._xyz) retain values even when accessed in other methods.
+✔ Getter methods provide access while maintaining encapsulation.
+✔ Sensitive values (like API keys) are masked when accessed.
+
+✅ 4️⃣ Usage in main.py
+
+Now, in your FastAPI app:
+
+from fastapi import FastAPI
+from src.config.TestConstants import config  # Import instance, not class
+
+app = FastAPI()
+
+@app.get("/api/myservice/v1/config")
+async def get_config():
+    return {
+        "AZURE_ENDPOINT": config.get_azure_endpoint(),
+        "API_KEY": config.get_api_key(),
+        "DEPLOYMENT_NAME": config.get_deployment_name(),
+        "MAX_RETRIES": config.get_max_retries(),
+        "TIMEOUT": config.get_timeout(),
+        "ENABLE_LOGGING": config.get_enable_logging()
+    }
+✅ 5️⃣ Debugging: Verify Environment Variable Retention
+
+Add this inside TestConstants.py to debug:
+
+print(f"AZURE_ENDPOINT Loaded: {self._azure_endpoint}")
+Then, run:
+
+uvicorn src.main:app --host 0.0.0.0 --port 8080
+If print() inside __init__ shows the correct value, your env variables are correctly retained.
+
+🚀 Now, your TestConstants class correctly stores env values and keeps them accessible via methods!
