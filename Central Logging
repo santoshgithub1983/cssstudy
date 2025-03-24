@@ -1,0 +1,33 @@
+Create src/logging.py:
+
+import logging
+import sys
+
+# Configure the logging system
+logging.basicConfig(
+    level=logging.INFO,  # Set logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+    format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
+    handlers=[
+        logging.StreamHandler(sys.stdout),  # Logs to console
+        logging.FileHandler("app.log", mode="a"),  # Logs to file
+    ]
+)
+
+# Create a logger instance
+logger = logging.getLogger("MyApp")  # Give a custom name to the logger
+logger.setLevel(logging.INFO)  # Set default logging level
+
+
+Example in src/main.py:
+
+from fastapi import FastAPI
+from src.logging import logger  # Import central logger
+
+app = FastAPI()
+
+@app.get("/")
+async def home():
+    logger.info("Home endpoint accessed")
+    return {"message": "Welcome to MyApp"}
+
+
