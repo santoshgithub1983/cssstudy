@@ -1,0 +1,103 @@
+Let's fix the empty constants response by ensuring proper access to your TestConstants. Here's the corrected implementation:
+
+1. First, verify your TestConstants.py structure:
+
+python
+Copy
+# TestConstants.py
+class TestConstants:
+    # Make sure these are CLASS ATTRIBUTES with UPPERCASE names
+    AZURE_ENDPOINT = "https://your-endpoint.openai.azure.com/"
+    API_KEY = "your-api-key-123"
+    DEPLOYMENT_NAME = "gpt-4-deployment"
+    MAX_RETRIES = 3
+    TIMEOUT = 30
+    ENABLE_LOGGING = True
+2. Modify your main.py:
+
+python
+Copy
+from fastapi import FastAPI
+from TestConstants import TestConstants
+
+app = FastAPI()
+
+def get_masked_constants():
+    """Get constants with sensitive values masked"""
+    return {
+        name: "*****" if any(s in name.lower() for s in {"key", "secret", "token"}) else value
+        for name, value in vars(TestConstants).items()
+        if name.isupper() and not name.startswith('__')
+    }
+
+@app.get("/", response_model=dict)
+async def read_root():
+    return {
+        "status": "Running with configured constants",
+        "constants": get_masked_constants()
+    }
+
+# Test the constants output
+if __name__ == "__main__":
+    print("Test output:", get_masked_constants())
+Key fixes:
+
+Using vars(TestConstants).items() instead of dir() to properly access class attributes
+
+Direct dictionary comprehension for cleaner filtering
+
+Added explicit test output when run directly
+
+To verify:
+
+Run the file directly:
+
+bash
+Copy
+python main.py
+Should output:
+
+python
+Copy
+Test output: {
+    'AZURE_ENDPOINT': 'https://your-endpoint.openai.azure.com/',
+    'API_KEY': '*****',
+    'DEPLOYMENT_NAME': 'gpt-4-deployment',
+    'MAX_RETRIES': 3,
+    'TIMEOUT': 30,
+    'ENABLE_LOGGING': True
+}
+Common issues to check:
+
+Ensure constants are defined as class-level attributes (not instance attributes)
+
+Verify constant names are UPPERCASE
+
+Confirm there's no __all__ declaration filtering out constants
+
+Check for typos in attribute names
+
+If using a module instead of a class (TestConstants.py without a class):
+
+python
+Copy
+# TestConstants.py
+AZURE_ENDPOINT = "https://your-endpoint.openai.azure.com/"
+API_KEY = "your-api-key-123"
+DEPLOYMENT_NAME = "gpt-4-deployment"
+MAX_RETRIES = 3
+TIMEOUT = 30
+ENABLE_LOGGING = True
+Modify the getter function:
+
+python
+Copy
+from TestConstants import *
+
+def get_masked_constants():
+    return {
+        name: "*****" if any(s in name.lower() for s in {"key", "secret"}) else value
+        for name, value in globals().items()
+        if name.isupper() and name.startswith(("AZURE_", "API_", "DEPLOYMENT_", "MAX_", "TIMEOUT_", "ENABLE_"))
+    }
+Choose the implementation that matches your actual TestConstants structure.
