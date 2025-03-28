@@ -258,3 +258,230 @@ bash
 Copy
 uvicorn main:app --reload
 This structure provides a solid foundation for building and scaling LangGraph applications while maintaining production readiness.
+
+
+
+
+
+
+====================== 
+
+
+
+
+You're welcome! Passing LLMs (or any shared resources) to LangGraph node functions can be done in several clean ways. Here's a production-focused approach using dependency injection and configuration:
+
+1. Using a Shared Context Class (Recommended)
+
+python
+Copy
+# app/core/context.py
+from pydantic import BaseModel
+from langchain_core.language_models import BaseLanguageModel
+
+class AppContext(BaseModel):
+    llm: BaseLanguageModel
+    search_client: Any  # Your search service client
+    database: Any       # Database connection
+    config: dict        # Configuration
+    
+    class Config:
+        arbitrary_types_allowed = True
+2. Initialize Context in Main Workflow Setup
+
+python
+Copy
+# app/core/workflow.py
+from langgraph.graph import StateGraph
+from app.config.settings import get_settings
+from app.core.context import AppContext
+
+def create_workflow():
+    settings = get_settings()
+    
+    # Initialize shared resources
+    context = AppContext(
+        llm=ChatOpenAI(
+            temperature=0.5,
+            model="gpt-4-turbo",
+            api_key=settings.openai_api_key
+        ),
+        search_client=SearchClient(settings.search_api_key),
+        config=settings.model_dump()
+    )
+    
+    # Initialize workflow with context
+    workflow = StateGraph(ResearchState)
+    
+    workflow.add_node("research", research_node(context))
+    workflow.add_node("write", write_node(context))
+    
+    # ... rest of workflow setup
+    return workflow.compile()
+3. Node Implementation with Context
+
+python
+Copy
+# app/agents/research.py
+from typing import Callable
+from langchain_core.language_models import BaseLanguageModel
+from app.core.context import AppContext
+
+def research_node(context: AppContext) -> Callable:
+    async def _research_node(state: dict):
+        # Access LLM from context
+        result = await context.llm.ainvoke(
+            f"Research query: {state['query']}"
+        )
+        
+        # Access other resources
+        search_results = context.search_client.query(
+            state['query'], 
+            api_key=context.config.search_api_key
+        )
+        
+        return {**state, "research_data": result.content}
+    
+    return _research_node
+4. Dependency Injection in API Endpoints
+
+python
+Copy
+# app/api/endpoints.py
+from fastapi import APIRouter, Depends
+from app.core.workflow import create_workflow
+
+router = APIRouter()
+
+@router.post("/run-workflow")
+async def execute_workflow(input_data: dict):
+    # Workflow is created with all dependencies
+    workflow = create_workflow()
+    return await workflow.ainvoke(input_data)
+Alternative Approach: Class-based Nodes
+
+python
+Copy
+# app/agents/base.py
+from abc import ABC, abstractmethod
+from app.core.context import AppContext
+
+class BaseNode(ABC):
+    def __init__(self, context: AppContext):
+        self.llm = context.llm
+        self.config = context.config
+    
+    @abstractmethod
+    async def execute(self, state: dict) -> dict:
+        pass
+
+# app/agents/research.py
+from app.agents.base import BaseNode
+
+class ResearchNode(BaseNode):
+    async def execute(self, state: dict) -> dict:
+        prompt = self._create_prompt(state["query"])
+        result = await self.llm.ainvoke(prompt)
+        return {**state, "research": result.content}
+    
+    def _create_prompt(self, query: str) -> str:
+        return f"""Research this query: {query}
+        Current date: {self.config.current_date}
+        Max sources: {self.config.max_sources}"""
+Best Practices for Production:
+
+Lifecycle Management
+
+python
+Copy
+# Use async context managers for resources
+async with get_async_llm_session() as llm:
+    context = AppContext(llm=llm)
+Multiple LLM Support
+
+python
+Copy
+# app/core/context.py
+class AppContext:
+    def __init__(self, settings):
+        self.llms = {
+            "creative": ChatOpenAI(temperature=0.7),
+            "analytical": ChatOpenAI(temperature=0.2),
+            "fast": ChatOpenAI(model="gpt-3.5-turbo")
+        }
+Testing with Mock LLMs
+
+python
+Copy
+# tests/unit/test_agents.py
+@pytest.fixture
+def mock_context():
+    return AppContext(
+        llm=FakeListLLM(responses=["mock response"]),
+        config=test_config
+    )
+
+def test_research_node(mock_context):
+    node = research_node(mock_context)
+    result = node({"query": "test"})
+    assert "mock response" in result
+Rate Limiting
+
+python
+Copy
+# app/utils/rate_limiting.py
+from tenacity import retry, stop_after_attempt, wait_exponential
+
+@retry(stop=stop_after_attempt(3), 
+       wait=wait_exponential(multiplier=1, min=4, max=10))
+async def safe_llm_call(llm, prompt):
+    return await llm.ainvoke(prompt)
+Monitoring
+
+python
+Copy
+# app/utils/monitoring.py
+from prometheus_client import Histogram
+
+LLM_RESPONSE_TIME = Histogram(
+    'llm_response_seconds',
+    'LLM response time histogram',
+    ['model', 'endpoint']
+)
+
+async def monitored_llm_call(llm, prompt):
+    with LLM_RESPONSE_TIME.labels(
+        model=llm.model_name, 
+        endpoint="research"
+    ).time():
+        return await llm.ainvoke(prompt)
+Usage in Workflow Setup
+
+python
+Copy
+def create_workflow():
+    context = initialize_context()
+    
+    workflow = StateGraph(ResearchState)
+    
+    # Add nodes with shared context
+    workflow.add_node("research", ResearchNode(context).execute)
+    workflow.add_node("validate", ValidationNode(context).execute)
+    
+    # ... workflow connections
+    return workflow.compile()
+This approach gives you:
+
+Clear dependency management
+
+Easy testing/mocking
+
+Resource reuse across nodes
+
+Centralized configuration
+
+Type safety with Pydantic
+
+Production-ready monitoring and reliability
+
+You can swap out LLM implementations (e.g., OpenAI vs Anthropic) without changing node code by modifying the context initialization.
