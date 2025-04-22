@@ -1,0 +1,14 @@
+Dummy Checkpointer (Simplest Quick Fix)
+Create a minimal in-memory checkpointer that does nothing:
+
+python
+from langgraph.checkpoint.base import BaseCheckpointSaver
+
+class DummyCheckpointer(BaseCheckpointSaver):
+    def get(self, config: dict) -> dict:
+        return {}
+    def put(self, config: dict, checkpoint: dict):
+        pass
+
+# Usage
+workflow.compile(checkpointer=DummyCheckpointer())
