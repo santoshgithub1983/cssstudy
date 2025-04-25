@@ -1,0 +1,119 @@
+o ensure your FastAPI tests use mock environment variables while avoiding real values, you need to control the order of imports and environment variable patching. Here's a step-by-step solution:
+
+1. Problem Analysis
+Real values leak into tests: This happens when the app or settings are imported before environment variables are mocked.
+
+Solution: Dynamically import the app after patching environment variables to force settings to use mocked values.
+
+2. Structured Approach
+Key Steps:
+Use monkeypatch to set environment variables in a pytest fixture.
+
+Import the app dynamically inside the fixture after patching.
+
+Avoid top-level imports of the app or settings in test files.
+
+3. Example Implementation
+Directory Structure
+.
+├── main.py
+└── tests
+    └── test_main.py
+main.py (FastAPI App)
+python
+from fastapi import FastAPI
+from pydantic import BaseSettings
+
+class Settings(BaseSettings):
+    my_env_var: str = "default"  # Reads from env var `MY_ENV_VAR`
+
+settings = Settings()  # Initialized at module level
+app = FastAPI()
+
+@app.get("/env-var")
+def get_env_var():
+    return {"value": settings.my_env_var}
+tests/test_main.py (Pytest Tests)
+python
+import pytest
+from fastapi.testclient import TestClient
+
+# Fixture to mock env vars and import app AFTER patching
+@pytest.fixture(scope="module")
+def mock_env_vars():
+    # Use monkeypatch to set env vars
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("MY_ENV_VAR", "mock_value")  # <-- Mocked value
+        # Import app AFTER setting env vars
+        from main import app
+        yield app
+
+# Create test client from the patched app
+@pytest.fixture(scope="module")
+def client(mock_env_vars):
+    return TestClient(mock_env_vars)
+
+# Test
+def test_env_var(client):
+    response = client.get("/env-var")
+    assert response.json() == {"value": "mock_value"}  # Uses mocked value
+4. Key Details
+Dynamic Imports:
+
+Import app inside the fixture after patching with monkeypatch to ensure settings use mocked values.
+
+Avoid top-level imports like from main import app in test files.
+
+Scoped Fixtures:
+
+Use scope="module" to avoid redundant imports and patching for multiple tests.
+
+Pydantic Settings:
+
+If using BaseSettings, ensure settings are initialized after patching. Pydantic reads environment variables at instantiation time.
+
+5. Alternative: Dependency Overrides
+If environment variables are still problematic, override the settings dependency directly:
+
+main.py (With Dependency Injection)
+python
+from fastapi import FastAPI, Depends
+from pydantic import BaseSettings
+
+class Settings(BaseSettings):
+    my_env_var: str = "default"
+
+def get_settings():
+    return Settings()
+
+app = FastAPI()
+
+@app.get("/env-var")
+def get_env_var(settings: Settings = Depends(get_settings)):
+    return {"value": settings.my_env_var}
+test_main.py (Override Dependency)
+python
+from fastapi.testclient import TestClient
+from main import app
+
+def override_get_settings():
+    class MockSettings:
+        my_env_var = "mock_value"
+    return MockSettings()
+
+# Override the dependency
+app.dependency_overrides[get_settings] = override_get_settings
+
+client = TestClient(app)
+
+def test_env_var():
+    response = client.get("/env-var")
+    assert response.json() == {"value": "mock_value"}
+6. Troubleshooting
+Check Import Order: Ensure no accidental top-level imports of app or settings in test files.
+
+Singleton Caching: If settings are cached (e.g., with @lru_cache), clear the cache in tests.
+
+.env Files: If using python-dotenv, disable it in tests or ensure mocked values override .env values.
+
+By controlling imports and patching order, you can isolate unit tests to use mock values while keeping real values in other environments. Use dependency overrides for even more explicit control.
