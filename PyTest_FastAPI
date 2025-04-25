@@ -1,3 +1,38 @@
+import os
+from unittest import TestCase, mock
+from fastapi.testclient import TestClient
+
+class TestLivenessEndpoint(TestCase):
+    @mock.patch.dict(os.environ, {
+        "OPENAI_API_KEY": "mock-key",
+        "OTHER_LLM_ENV_VAR": "mock-value",
+        "ANY_OTHER_REQUIRED_ENV": "mock-value"
+    })
+    def test_liveness_endpoint_returns_success(self):
+        # Import app AFTER patching environment variables
+        from main import app
+        
+        client = TestClient(app)
+        response = client.get("/healthz")
+        
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"status": "ok"})
+
+
+
+=================================
+
+
+
+
+
+
+
+
+
+
+
+
 o ensure your FastAPI tests use mock environment variables while avoiding real values, you need to control the order of imports and environment variable patching. Here's a step-by-step solution:
 
 1. Problem Analysis
