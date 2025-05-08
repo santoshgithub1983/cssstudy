@@ -1,0 +1,76 @@
+Got it! You're planning to store the .crt and .key contents as GitLab CI/CD variables of type file — that’s a secure and Git-safe approach.
+
+Let me walk you through how to wire that into your Terraform flow, step-by-step:
+
+✅ Step-by-Step Guide: Upload .crt and .key to Azure Key Vault via GitLab CI/CD
+🔐 Step 1: Define GitLab CI/CD Variables
+In GitLab > Settings > CI/CD > Variables:
+
+Add a file-type variable for each secret:
+
+Key	Type	Value
+CLIENT_CRT_FILE	File	Paste contents of .crt
+CLIENT_KEY_FILE	File	Paste contents of .key
+
+GitLab stores these as temporary files during the pipeline.
+
+🧪 Step 2: Terraform Code to Upload from GitLab CI/CD Runtime
+Update your Terraform to read the temporary files provided by GitLab:
+
+hcl
+Copy
+Edit
+# Read environment variables (path to temp files created by GitLab)
+locals {
+  client_crt = filebase64(var.client_crt_path)
+  client_key = filebase64(var.client_key_path)
+}
+
+variable "client_crt_path" {
+  description = "Path to the .crt file (from GitLab file variable)"
+  type        = string
+}
+
+variable "client_key_path" {
+  description = "Path to the .key file (from GitLab file variable)"
+  type        = string
+}
+
+resource "azurerm_key_vault_secret" "client_crt" {
+  name         = "client-crt"
+  value        = local.client_crt
+  key_vault_id = azurerm_key_vault.myvault.id
+}
+
+resource "azurerm_key_vault_secret" "client_key" {
+  name         = "client-key"
+  value        = local.client_key
+  key_vault_id = azurerm_key_vault.myvault.id
+}
+🧰 Step 3: GitLab .gitlab-ci.yml Setup
+Use the file variables in the job and pass their paths to Terraform:
+
+yaml
+Copy
+Edit
+upload_certs:
+  stage: deploy
+  script:
+    - echo "Uploading certs to Azure Key Vault"
+    - terraform init
+    - terraform apply -auto-approve \
+        -var="client_crt_path=$CLIENT_CRT_FILE" \
+        -var="client_key_path=$CLIENT_KEY_FILE"
+  variables:
+    TF_VAR_client_crt_path: $CLIENT_CRT_FILE
+    TF_VAR_client_key_path: $CLIENT_KEY_FILE
+CLIENT_CRT_FILE and CLIENT_KEY_FILE are automatically created as file paths when using file-type GitLab variables.
+
+🔒 Security Notes
+GitLab masks file variables — they aren’t exposed in logs.
+
+The files are deleted after the job.
+
+Only Terraform has access to them during the job.
+
+The actual contents never touch your repo.
