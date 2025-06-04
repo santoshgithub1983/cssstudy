@@ -1,0 +1,187 @@
+Creating a Simple MCP Server with Python
+Model Context Protocol (MCP) is a protocol for interacting with AI models and tools. Here's how to create a simple MCP server using Python that can expose tools via @mcp.tool() decorators.
+
+Official Python SDK Approach
+The most official way would be to use the MCP Python SDK if available, but since there isn't a widely recognized standard MCP SDK, I'll show you how to create a basic implementation.
+
+Basic MCP Server Implementation
+python
+from flask import Flask, request, jsonify
+from functools import wraps
+import inspect
+
+app = Flask(__name__)
+
+class MCP:
+    def __init__(self):
+        self.tools = {}
+    
+    def tool(self, name=None, description=""):
+        def decorator(f):
+            tool_name = name or f.__name__
+            self.tools[tool_name] = {
+                "function": f,
+                "description": description,
+                "parameters": inspect.signature(f).parameters
+            }
+            
+            @wraps(f)
+            def wrapper(*args, **kwargs):
+                return f(*args, **kwargs)
+            return wrapper
+        return decorator
+
+mcp = MCP()
+
+# Register routes
+@app.route('/mcp/tools', methods=['GET'])
+def list_tools():
+    tools_info = []
+    for name, tool in mcp.tools.items():
+        tools_info.append({
+            "name": name,
+            "description": tool['description'],
+            "parameters": {param: str(param_info) 
+                          for param, param_info in tool['parameters'].items()}
+        })
+    return jsonify({"tools": tools_info})
+
+@app.route('/mcp/tools/<tool_name>', methods=['POST'])
+def execute_tool(tool_name):
+    if tool_name not in mcp.tools:
+        return jsonify({"error": "Tool not found"}), 404
+    
+    tool = mcp.tools[tool_name]
+    data = request.get_json()
+    
+    try:
+        result = tool['function'](**data)
+        return jsonify({"result": result})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+# Example tool
+@mcp.tool(description="Adds two numbers together")
+def add_numbers(a: float, b: float) -> float:
+    """Adds two numbers and returns the result"""
+    return a + b
+
+# Remote API example
+@mcp.tool(description="Calls a remote API")
+def call_remote_api(url: str, method: str = "GET", params: dict = None) -> dict:
+    """Calls a remote API and returns the response"""
+    import requests
+    response = requests.request(method, url, params=params)
+    response.raise_for_status()
+    return response.json()
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
+Using This MCP Server
+List available tools:
+
+bash
+curl http://localhost:5000/mcp/tools
+Execute a tool:
+
+bash
+curl -X POST http://localhost:5000/mcp/tools/add_numbers \
+  -H "Content-Type: application/json" \
+  -d '{"a": 5, "b": 3}'
+Call remote API through MCP:
+
+bash
+curl -X POST http://localhost:5000/mcp/tools/call_remote_api \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://api.example.com/data", "method": "GET"}'
+Production Considerations
+For a production-ready MCP server, you should:
+
+Use a more robust framework like FastAPI or Django
+
+Add authentication/authorization
+
+Implement proper error handling
+
+Add rate limiting
+
+Include request validation
+
+Add logging and monitoring
+
+Consider async execution for long-running tools
+
+Alternative Approach with FastAPI
+Here's a more modern version using FastAPI:
+
+python
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from typing import Optional, Dict, Any
+import requests
+
+app = FastAPI()
+mcp_tools = {}
+
+class ToolRegistration:
+    def __init__(self):
+        self.tools = {}
+    
+    def tool(self, name: Optional[str] = None, description: str = ""):
+        def decorator(func):
+            tool_name = name or func.__name__
+            self.tools[tool_name] = {
+                "function": func,
+                "description": description,
+                "signature": func.__annotations__
+            }
+            return func
+        return decorator
+
+mcp = ToolRegistration()
+
+@app.get("/mcp/tools")
+async def list_tools():
+    return {
+        "tools": [
+            {
+                "name": name,
+                "description": tool["description"],
+                "parameters": tool["signature"]
+            }
+            for name, tool in mcp.tools.items()
+        ]
+    }
+
+class ToolRequest(BaseModel):
+    parameters: Dict[str, Any]
+
+@app.post("/mcp/tools/{tool_name}")
+async def execute_tool(tool_name: str, request: ToolRequest):
+    if tool_name not in mcp.tools:
+        raise HTTPException(status_code=404, detail="Tool not found")
+    
+    try:
+        result = mcp.tools[tool_name]["function"](**request.parameters)
+        return {"result": result}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# Example tools
+@mcp.tool(description="Adds two numbers")
+def add_numbers(a: float, b: float) -> float:
+    return a + b
+
+@mcp.tool(description="Calls a remote API")
+def call_remote_api(
+    url: str,
+    method: str = "GET",
+    params: Optional[dict] = None,
+    headers: Optional[dict] = None
+) -> dict:
+    response = requests.request(method, url, params=params, headers=headers)
+    response.raise_for_status()
+    return response.json()
+
+# Run with: uvicorn mcp_server:app --reload
+This implementation provides better type safety, automatic OpenAPI documentation, and async support.
