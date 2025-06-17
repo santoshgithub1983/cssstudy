@@ -1,0 +1,153 @@
+To implement an MCP (Model Context Protocol) server in Python that requires a Bearer token for authentication (both to access the MCP server and to forward calls to a remote API via a tool), you can follow this setup using the MCP Python SDK.
+
+
+---
+
+✅ Objectives:
+
+1. MCP Server accepts requests only if the Bearer token is valid.
+
+
+2. Tools inside MCP Server forward requests to a remote API, passing the same Bearer token.
+
+
+3. For local dev: .env provides the token.
+
+
+4. For CI/CD: token comes from Helm chart (via Kubernetes secret or env).
+
+
+
+
+---
+
+🔧 1. Load Token from Env (.env or Helm-injected)
+
+Create a .env for local testing:
+
+BEARER_TOKEN=your_local_test_token
+REMOTE_API_URL=https://your.remote.api/endpoint
+
+In Python, use:
+
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+EXPECTED_TOKEN = os.getenv("BEARER_TOKEN")
+REMOTE_API_URL = os.getenv("REMOTE_API_URL")
+
+In Helm/K8s, inject this as:
+
+env:
+  - name: BEARER_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: my-mcp-secret
+        key: bearer_token
+
+
+---
+
+🛡️ 2. Bearer Token Authentication Middleware
+
+Create a middleware or decorator to validate incoming token:
+
+from fastapi import Request, HTTPException
+
+def authenticate_token(request: Request):
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid token")
+    
+    token = auth_header[len("Bearer "):].strip()
+    if token != EXPECTED_TOKEN:
+        raise HTTPException(status_code=403, detail="Invalid token")
+    
+    return token
+
+
+---
+
+🧠 3. Define Your Tool (Forwards to Remote API with Token)
+
+from mcp import tool
+import httpx
+
+@tool(name="remote_api_tool")
+async def remote_api_tool(input: dict, request: Request):
+    token = authenticate_token(request)
+
+    # Forward to remote API with same token
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            REMOTE_API_URL,
+            json=input,
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        return response.json()
+
+
+---
+
+🚀 4. MCP Server Setup
+
+from fastapi import FastAPI, Request
+from mcp.fastapi import create_mcp_app
+from mcp.tool import register_tool
+import uvicorn
+
+app = FastAPI()
+
+# Register the tool
+register_tool(remote_api_tool)
+
+# Add MCP routes
+app.mount("/mcp", create_mcp_app())
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    if request.url.path.startswith("/mcp"):
+        authenticate_token(request)  # Validate here too
+    return await call_next(request)
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+---
+
+📦 5. Deploying with Helm (CI/CD)
+
+In your values.yaml:
+
+secrets:
+  bearerToken: your-ci-cd-token
+
+In deployment.yaml:
+
+env:
+  - name: BEARER_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: your-secret
+        key: bearerToken
+
+
+---
+
+✅ Summary
+
+Feature	Implemented by
+
+Auth at MCP-level	FastAPI middleware
+Token forwarding to remote API	Tool function headers
+Local testing	.env + dotenv
+CI/CD deploy	Helm + K8s Secrets
+
+
+
+---
+
+Would you like a ready-to-use template or want help setting this up in a Docker + Helm chart environment?
+
