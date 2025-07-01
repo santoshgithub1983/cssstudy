@@ -1,0 +1,166 @@
+gitlab_client.py
+python
+Copy
+Edit
+import requests
+
+def fetch_repo_files(project_id, token):
+    url = f"https://gitlab.com/api/v4/projects/{project_id}/repository/tree?recursive=true"
+    headers = {"PRIVATE-TOKEN": token}
+    res = requests.get(url, headers=headers)
+    return [f for f in res.json() if f['type'] == 'blob' and f['path'].endswith('.py')]
+📄 code_parser.py
+python
+Copy
+Edit
+def extract_functions(code: str):
+    lines = code.splitlines()
+    return [line for line in lines if line.strip().startswith("def ")]
+📄 llm_summarizer.py
+python
+Copy
+Edit
+import openai
+import os
+
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
+def summarize_function(code_snippet):
+    prompt = f"Explain what this function does:\n\n{code_snippet}"
+    res = openai.ChatCompletion.create(
+        model="gpt-4",
+        messages=[{"role": "user", "content": prompt}]
+    )
+    return res.choices[0].message.content.strip()
+📄 doc_generator.py
+python
+Copy
+Edit
+def generate_markdown(summaries):
+    md = "# Functional Documentation\n\n"
+    for name, summary in summaries.items():
+        md += f"## {name}\n{summary}\n\n"
+    return md
+📄 main.py
+python
+Copy
+Edit
+import os
+from auto_doc_gen.gitlab_client import fetch_repo_files
+from auto_doc_gen.code_parser import extract_functions
+from auto_doc_gen.llm_summarizer import summarize_function
+from auto_doc_gen.doc_generator import generate_markdown
+import requests
+
+def run(project_id, token):
+    files = fetch_repo_files(project_id, token)
+    summaries = {}
+    for f in files[:3]:  # limit for MVP
+        url = f"https://gitlab.com/api/v4/projects/{project_id}/repository/files/{f['path']}?ref=main"
+        res = requests.get(url, headers={"PRIVATE-TOKEN": token})
+        content = res.json().get('content')
+        if content:
+            import base64
+            decoded = base64.b64decode(content).decode()
+            funcs = extract_functions(decoded)
+            for func in funcs:
+                summaries[func] = summarize_function(func)
+    markdown = generate_markdown(summaries)
+    with open("FUNCTIONAL_DOC.md", "w") as f:
+        f.write(markdown)
+
+# Example usage:
+# run(project_id='12345678', token='your_gitlab_token')
+✅ How to Use
+Set your OpenAI key:
+
+bash
+Copy
+Edit
+export OPENAI_API_KEY=your_key
+Run the project:
+
+python
+Copy
+Edit
+from auto_doc_gen.main import run
+run(project_id='your_gitlab_project_id', token='your_gitlab_token')
+Output is generated as FUNCTIONAL_DOC.md.
+
+Would you like a ZIP file version or a GitHub Gist of this project too?
+
+
+
+
+
+
+
+
+You said:
+add the environment variabled via .env 
+
+
+ChatGPT said:
+Here’s how to manage your environment variables securely using a .env file for this project.
+
+✅ Step-by-Step .env Integration
+📄 1. Create .env file (in root)
+dotenv
+Copy
+Edit
+# .env
+GITLAB_TOKEN=your_gitlab_token_here
+OPENAI_API_KEY=your_openai_api_key_here
+GITLAB_PROJECT_ID=your_project_id_here
+📄 2. Update main.py to load from .env
+Update the top of main.py:
+
+python
+Copy
+Edit
+from dotenv import load_dotenv
+import os
+
+load_dotenv()  # load variables from .env
+
+from auto_doc_gen.gitlab_client import fetch_repo_files
+from auto_doc_gen.code_parser import extract_functions
+from auto_doc_gen.llm_summarizer import summarize_function
+from auto_doc_gen.doc_generator import generate_markdown
+import requests
+
+def run():
+    project_id = os.getenv("GITLAB_PROJECT_ID")
+    token = os.getenv("GITLAB_TOKEN")
+
+    files = fetch_repo_files(project_id, token)
+    summaries = {}
+    for f in files[:3]:  # limit to 3 files
+        url = f"https://gitlab.com/api/v4/projects/{project_id}/repository/files/{f['path']}?ref=main"
+        res = requests.get(url, headers={"PRIVATE-TOKEN": token})
+        content = res.json().get('content')
+        if content:
+            import base64
+            decoded = base64.b64decode(content).decode()
+            funcs = extract_functions(decoded)
+            for func in funcs:
+                summaries[func] = summarize_function(func)
+    markdown = generate_markdown(summaries)
+    with open("FUNCTIONAL_DOC.md", "w") as f:
+        f.write(markdown)
+
+if __name__ == "__main__":
+    run()
+📄 3. Update llm_summarizer.py to read from .env
+Already included:
+
+python
+Copy
+Edit
+import openai
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+openai.api_key = os.getenv("OPENAI_API_KEY")
