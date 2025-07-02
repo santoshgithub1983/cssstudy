@@ -1,0 +1,228 @@
+
+
+
+Certainly! Here's the complete updated code for your tool that supports .py, .java, and .js files. Copy and paste each of the following into their respective files:
+
+
+---
+
+✅ main.py
+
+from gitlab_client import fetch_repo
+from code_filter import filter_code_by_keyword
+from llm_summarizer import summarize_functions
+from doc_generator import generate_markdown_doc
+
+def main():
+    repo_url = "https://gitlab.com/your-org/your-repo.git"  # Replace with your actual GitLab repo URL
+    keyword = "generate invoice pdf"
+    repo_path = fetch_repo(repo_url)
+
+    print("🔍 Filtering relevant functions from Python, Java, JS...")
+    functions = filter_code_by_keyword(repo_path, keyword)
+
+    if not functions:
+        print("No relevant functions found.")
+        return
+
+    print(f"🧠 Found {len(functions)} matching functions. Summarizing...")
+    summaries = summarize_functions(functions)
+
+    output_path = "output/generated_docs/invoice_pdf.md"
+    generate_markdown_doc(keyword, summaries, output_path)
+
+    print(f"✅ Documentation written to: {output_path}")
+
+if __name__ == "__main__":
+    main()
+
+
+---
+
+✅ gitlab_client.py
+
+import os
+import subprocess
+
+def fetch_repo(repo_url, target_dir="repo_cache"):
+    os.makedirs(target_dir, exist_ok=True)
+    repo_name = repo_url.split("/")[-1].replace(".git", "")
+    path = os.path.join(target_dir, repo_name)
+    if not os.path.exists(path):
+        print(f"Cloning repo {repo_url}...")
+        subprocess.run(["git", "clone", repo_url, path], check=True)
+    else:
+        print(f"Repo already exists at {path}")
+    return path
+
+
+---
+
+✅ code_filter.py
+
+import os
+import ast
+import re
+
+def extract_python_functions(filepath):
+    try:
+        with open(filepath, "r", encoding="utf-8") as file:
+            code = file.read()
+        node = ast.parse(code)
+        functions = []
+        for n in ast.walk(node):
+            if isinstance(n, ast.FunctionDef):
+                func_code = ast.get_source_segment(code, n)
+                functions.append({
+                    "name": n.name,
+                    "code": func_code,
+                    "filepath": filepath
+                })
+        return functions
+    except Exception as e:
+        print(f"Error parsing {filepath}: {e}")
+        return []
+
+def extract_java_js_functions(filepath):
+    try:
+        with open(filepath, "r", encoding="utf-8") as file:
+            code = file.read()
+
+        pattern = r"(public|private|protected)?\\s*(static)?\\s*\\w+\\s+(\\w+)\\s*\\([^)]*\\)\\s*\\{"
+        matches = re.finditer(pattern, code)
+        functions = []
+        for match in matches:
+            func_name = match.group(3)
+            snippet = code[match.start():match.start() + 1000]  # crude slicing
+            functions.append({
+                "name": func_name,
+                "code": snippet,
+                "filepath": filepath
+            })
+        return functions
+    except Exception as e:
+        print(f"Error parsing {filepath}: {e}")
+        return []
+
+def filter_code_by_keyword(repo_path, keyword):
+    result = []
+    for root, _, files in os.walk(repo_path):
+        for file in files:
+            path = os.path.join(root, file)
+            if file.endswith(".py"):
+                funcs = extract_python_functions(path)
+            elif file.endswith(".java") or file.endswith(".js"):
+                funcs = extract_java_js_functions(path)
+            else:
+                continue
+
+            for func in funcs:
+                if keyword.lower() in func["code"].lower() or keyword.lower() in func["name"].lower():
+                    result.append(func)
+    return result
+
+
+---
+
+✅ llm_summarizer.py
+
+import openai
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
+def summarize_functions(functions):
+    results = []
+    for func in functions:
+        prompt = f"Explain what this function does, including its inputs, outputs, and any side effects:\n\n{func['code']}"
+        try:
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": prompt}]
+            )
+            summary = response.choices[0].message["content"]
+        except Exception as e:
+            print(f"❌ Error summarizing function {func['name']}: {e}")
+            summary = "LLM Error: Could not summarize."
+
+        results.append({
+            "name": func["name"],
+            "filepath": func["filepath"],
+            "code": func["code"],
+            "summary": summary
+        })
+    return results
+
+
+---
+
+✅ doc_generator.py
+
+import os
+
+def generate_markdown_doc(keyword, summaries, output_path):
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(f"# 🔍 Functionality: \"{keyword}\"\n\n")
+        for s in summaries:
+            f.write(f"## 📁 File: `{s['filepath']}`\n")
+            f.write(f"### 🔧 Function: `{s['name']}`\n")
+            f.write(f"**Summary:**\n{s['summary']}\n\n")
+            f.write("```\n")
+            f.write(s["code"] + "\n")
+            f.write("```\n\n")
+
+
+---
+
+✅ .env
+
+OPENAI_API_KEY=your_openai_api_key_here
+
+Replace your_openai_api_key_here with your actual OpenAI key.
+
+
+---
+
+✅ requirements.txt
+
+openai
+python-dotenv
+
+
+---
+
+✅ How to Run the Tool
+
+1. Install dependencies
+
+pip install -r requirements.txt
+
+
+2. Set OpenAI key Create a .env file in the root directory with:
+
+OPENAI_API_KEY=your_key_here
+
+
+3. Run the tool
+
+python main.py
+
+
+
+
+---
+
+Would you like me to help you turn this into:
+
+A web-based interface?
+
+A GitLab CI/CD plugin?
+
+A VSCode extension?
+
+
+Let me know what direction you want to take next.
+
