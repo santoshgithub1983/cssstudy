@@ -1,0 +1,242 @@
+Perfect — you're now envisioning a custom AI-powered tool that:
+
+Filters relevant code or records from a GitLab project,
+
+Allows LLM-based keyword search (semantic + lexical),
+
+And auto-generates documentation (e.g., summaries, function listings, or usage guides) based on those filtered results.
+
+
+Let’s now redefine the User Journey, Functionality, and System Architecture accordingly.
+
+
+---
+
+✅ Updated User Journey for Custom LLM Code-Reader & Documentation Generator
+
+
+---
+
+🎯 Goal
+
+Allow users to input a functionality keyword, and generate a functional documentation file by:
+
+Reading filtered code from GitLab,
+
+Using an LLM to find relevant logic,
+
+Creating structured output like a Markdown/HTML doc.
+
+
+
+---
+
+👤 User Personas
+
+Developer: wants to find relevant reusable logic
+
+Tech Lead: needs functional summaries to review code
+
+QA/BA: wants to verify that a certain functionality exists in the codebase
+
+
+
+---
+
+🛣️ Step-by-Step User Flow
+
+
+---
+
+1. Setup & Project Access
+
+Step	Description
+
+1.1	User runs the CLI or Web App
+1.2	Enters GitLab credentials (token or SSH)
+1.3	Enters GitLab repo path or ID
+1.4	System clones or fetches code to local (with caching)
+
+
+✅ Outcome: Codebase is accessible and ready to parse.
+
+
+---
+
+2. Keyword-based LLM Query
+
+Step	Description
+
+2.1	User enters a functionality keyword (e.g. “create PDF invoice”)
+2.2	System filters files using:
+
+
+Keyword matches
+
+Heuristics (e.g., file/function names)
+
+File size/structure | 2.3 | Relevant code blocks/functions passed to LLM | | 2.4 | LLM outputs:
+
+Function summaries
+
+Logic explanation
+
+Input/output structure
+
+
+✅ Outcome: Matching functional logic is identified and described.
+
+
+---
+
+3. Auto-Generate Documentation
+
+Step	Description
+
+3.1	User clicks “Generate Documentation” or uses CLI flag
+3.2	System compiles:
+
+
+Matched functions
+
+Summaries
+
+Code locations
+
+Input/output usage | 3.3 | Outputs .md / .html / .txt file | | 3.4 | Optional: Upload to GitLab wiki/docs folder
+
+
+✅ Outcome: User receives a readable document on how the functionality is implemented.
+
+
+---
+
+📄 Sample Generated Documentation Output (Markdown)
+
+# 🔍 Functionality: "Generate Invoice PDF"
+
+## 🧠 Summary
+
+This document describes the code related to generating invoice PDFs in the project `gitlab.com/org/repo`.
+
+---
+
+### 📁 Location: `billing/pdf_generator.py`
+
+#### `def generate_invoice_pdf(invoice_id):`
+- **Inputs**: `invoice_id` (int)
+- **Returns**: `PDF File Stream`
+- **Summary**: Fetches invoice data and renders it using a Jinja template. Uses `reportlab` for PDF creation.
+
+---
+
+### 📁 Location: `billing/utils.py`
+
+#### `def fetch_invoice_data(invoice_id):`
+- Fetches invoice from DB using ORM.
+- Returns dict with invoice line items and metadata.
+
+---
+
+### 🔄 Dependency Flow
+- `generate_invoice_pdf()` calls `fetch_invoice_data()`
+- Both are called from the route `/invoices/pdf` in `routes/invoice.py`
+
+---
+
+📝 **Reviewed on:** 2025-07-02
+
+
+---
+
+🧩 System Modules Overview
+
+🔍 1. Code Fetcher & Filter
+
+GitLab integration via python-gitlab or git clone
+
+Walks through codebase to filter .py, .js, .ts, etc.
+
+Applies keyword filters on function names, comments, docstrings
+
+
+🧠 2. LLM Analyzer
+
+Sends filtered function blocks to LLM
+
+Uses prompt templates like:
+
+
+Explain what this function does, including inputs, outputs, and any side-effects.
+
+Supports OpenAI, Ollama, or HuggingFace LLMs
+
+
+🛠️ 3. Documentation Builder
+
+Converts function metadata and LLM output to structured Markdown or HTML
+
+Can support exporting to:
+
+GitLab Wiki
+
+Markdown file in repo
+
+External API
+
+
+
+
+---
+
+🗂️ Suggested Folder Structure
+
+llm-code-docgen/
+│
+├── main.py                    # CLI entrypoint
+├── gitlab_client.py           # Git repo fetch & sync
+├── code_filter.py             # Parses, filters relevant code
+├── llm_summarizer.py          # Sends prompt to LLM, parses response
+├── doc_generator.py           # Builds .md or .html doc
+├── prompts/
+│   └── function_explainer.txt
+├── output/
+│   └── generated_docs/
+├── config.yaml
+└── .env                       # GitLab token, LLM key
+
+
+---
+
+⚙️ Example CLI Commands
+
+python main.py --repo "gitlab.com/myteam/billing" \
+               --keyword "generate invoice pdf" \
+               --output ./output/docs/invoice_pdf.md
+
+
+---
+
+📌 Optional Enhancements
+
+Feature	Add-on
+
+VS Code extension	To run from IDE
+Web UI (FastAPI + React)	To allow more teams to use it
+GitLab CI integration	Auto-generate docs on MR
+Feedback loop	Let users rate LLM summaries
+Vector DB indexing	To support fast semantic search (e.g. with FAISS)
+
+
+
+---
+
+Would you like:
+
+Starter code for code_filter.py, llm_summarizer.py, or doc_generator.py?
+
+A sample working example using a local repo?
+
+
+Let me know and I’ll generate it for you.
+
