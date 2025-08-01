@@ -1,0 +1,107 @@
+Using a WebSocket combined with your AI agent can give you real-time, efficient communication, but to avoid unnecessary AI calls, you'll still need some smart caching and change detection on the UI side.
+
+
+---
+
+✅ When & Why to Use WebSocket
+
+Using WebSocket makes sense if:
+
+You want to push AI summary results as soon as they’re ready.
+
+You want to notify the backend that a page has changed, and only then request a new summary.
+
+You expect high-frequency updates and want low-latency comms between frontend and AI agent.
+
+
+But just using WebSocket alone won’t reduce AI calls — you still need logic to decide when to trigger AI, which leads us to the key strategy:
+
+
+---
+
+✅ Strategy: Use WebSocket + Content Hashing for Intelligent AI Calls
+
+1. Client-side Hashing for Change Detection
+
+Before sending a request via WebSocket, compute a hash of the page content.
+
+Send this hash to the backend.
+
+Backend stores the last summary per hash (cache).
+
+
+2. Backend Receives Hash and Looks Up Cache
+
+If the hash is already summarized → return cached summary.
+
+If it’s a new hash → call AI agent, store hash → summary mapping in Redis/DB, and send back result via WebSocket.
+
+
+
+---
+
+✅ Flow Diagram
+
+[UI: User Clicks Summarize]
+        ↓
+[Generate content hash]
+        ↓
+[WebSocket: send hash + optional text]
+        ↓
+[Backend]
+    ├─> If hash exists → return cached summary via WebSocket
+    └─> Else → Call AI agent → store summary → send back
+
+
+---
+
+✅ Sample WebSocket Payload
+
+{
+  "type": "summary_request",
+  "hash": "abc123",
+  "content": "optional, only if new"
+}
+
+
+---
+
+✅ Benefits of This Hybrid Approach
+
+Feature	WebSocket + Caching
+
+Real-time updates	✅
+Reduced AI cost	✅
+Efficient for dynamic pages	✅
+Debounced / batched AI calls	✅
+Better user experience	✅
+
+
+
+---
+
+✅ Bonus: Smart Triggers
+
+You can also combine this with:
+
+MutationObserver: Detect if page content changes.
+
+Throttle or debounce: Prevent frequent clicks triggering summaries.
+
+Manual "force refresh": For users who want to override cache.
+
+
+
+---
+
+🔧 Want Example Code?
+
+I can give you:
+
+A WebSocket server in Node.js or Python (with caching).
+
+Frontend JS example that connects via WebSocket and handles cache.
+
+
+Just let me know your stack (React? Vanilla JS? Node? FastAPI?), and I’ll tailor the example for you.
+
